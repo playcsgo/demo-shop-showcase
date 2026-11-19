@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sandbox</title>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --text:#1d2330; --muted:#6b7280; --line:#e3e6eb; --accent:#2f6fed; --ok:#16a34a; --bad:#dc2626; --warn:#d97706; --code:#f1f3f6; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#14161b; --card:#1d2027; --text:#e6e8ec; --muted:#9aa1ad; --line:#2e323b; --accent:#6c9bff; --ok:#4ade80; --bad:#f87171; --warn:#fbbf24; --code:#262a33; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.5 system-ui, -apple-system, "PingFang TC", "Noto Sans TC", sans-serif; }
+  header { padding:14px 16px; border-bottom:1px solid var(--line); background:var(--card); display:flex; gap:12px; align-items:baseline; flex-wrap:wrap; }
+  header h1 { margin:0; font-size:18px; }
+  header span { color:var(--muted); font-size:13px; }
+  main { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 460px), 1fr)); gap:14px; padding:14px 16px; max-width:1400px; margin:0 auto; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px 14px; min-width:0; }
+  section.wide { grid-column:1 / -1; }
+  h2 { font-size:15px; margin:0 0 10px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  td, th { text-align:left; padding:5px 6px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:500; }
+  a { color:var(--accent); }
+  button { font:inherit; border:1px solid var(--line); background:var(--card); color:var(--text); border-radius:6px; padding:4px 10px; cursor:pointer; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button.on { background:var(--accent); border-color:var(--accent); color:#fff; cursor:default; }
+  button:disabled { opacity:.5; cursor:default; }
+  .seg { display:inline-flex; gap:0; }
+  .seg button { border-radius:0; margin-left:-1px; }
+  .seg button:first-child { border-radius:6px 0 0 6px; margin-left:0; }
+  .seg button:last-child { border-radius:0 6px 6px 0; }
+  select { font:inherit; padding:4px 6px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--text); }
+  input[type=text], input[type=number] { font:inherit; padding:4px 6px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--text); width:110px; }
+  label.sc { display:flex; gap:8px; padding:5px 0; border-bottom:1px solid var(--line); }
+  label.sc small { color:var(--muted); display:block; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:8px 0; }
+  .muted { color:var(--muted); }
+  .ok { color:var(--ok); } .bad { color:var(--bad); } .warn { color:var(--warn); }
+  pre { background:var(--code); padding:8px; border-radius:6px; overflow:auto; font-size:12px; margin:6px 0 0; max-height:220px; }
+  .tag { font-size:11px; padding:1px 6px; border-radius:10px; border:1px solid var(--line); color:var(--muted); }
+  .nodes { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap:10px; }
+  .node { border:1px solid var(--line); border-radius:8px; padding:8px; background:var(--bg); min-height:120px; }
+  .node h3 { margin:0 0 6px; font-size:13px; display:flex; justify-content:space-between; gap:6px; flex-wrap:wrap; }
+  .pods { display:flex; flex-wrap:wrap; gap:4px; }
+  .pod { font-size:11px; padding:2px 6px; border-radius:4px; color:#111; white-space:nowrap; transition:opacity .3s; }
+  .pod.Terminating { opacity:.35; text-decoration:line-through; }
+  .pod.pending { outline:2px dashed #888; opacity:.7; }
+  .chip { display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:4px; vertical-align:middle; }
+  #report { position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; padding:16px; }
+  #report .box { background:var(--card); max-width:1100px; margin:0 auto; height:100%; overflow:auto; border-radius:10px; padding:16px 20px; }
+  #report pre { max-height:none; }
+  #report table { font-size:12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Sandbox</h1>
+  <span>手動實驗用；做事的是 sandbox/cli.mjs（CI 也用同一支）。</span>
+</header>
+<main>
+  <section class="wide" id="cluster-section" style="display:none">
+    <h2>叢集地圖（K8s）<span class="muted" style="font-weight:400;font-size:13px">　每 2 秒更新</span></h2>
+    <div class="row" id="k8s-mode"></div>
+    <div class="row" id="k8s-runtime"></div>
+    <div id="legend" class="row" style="font-size:12px"></div>
+    <div id="nodes" class="nodes"></div>
+    <div id="scalers" style="margin-top:10px"></div>
+    <div class="row" style="margin-top:10px" id="k8s-buckets"></div>
+  </section>
+
+  <section>
+    <h2>測試的套數</h2>
+    <div id="sets"></div>
+    <div class="row">開第 <input type="number" id="newSet" min="1" max="99" value="1" style="width:60px"> 套 <button onclick="setUp()">啟動</button></div>
+    <p class="muted" style="margin:4px 0 0;font-size:12px">跑情境時會自動啟動用到的套數，不用先按「啟動」。同一套同時間只做一件事，後按的會排隊。</p>
+  </section>
+
+  <section>
+    <h2>情境</h2>
+    <div id="scenarios"></div>
+    <div class="row">
+      用哪幾套 <input type="text" id="sets-input" value="1" title="例如 1 或 1,2（情境排隊，哪一套先跑完就拿下一個）">
+      seed <input type="text" id="seed" placeholder="情境預設" title="重現時填報告上的 seed">
+      只跑 <input type="text" id="only" placeholder="s42-u17-i3" title="重現某一輪（搭配同一個 seed）">
+      重複 <input type="number" id="repeat" min="1" value="1" style="width:60px" title="每次換新的 seed">
+    </div>
+    <div class="row muted">
+      壓力／耐久：每秒下單 <input type="text" id="rps" placeholder="5,10,20">
+      每段 <input type="text" id="hold" placeholder="1m">
+      耐久時間 <input type="text" id="duration" placeholder="30m">
+    </div>
+    <div class="row">
+      <label><input type="checkbox" id="noBuild"> 不重新 build</label>
+      <label><input type="checkbox" id="force"> 其他套數在跑也執行</label>
+      <button class="primary" onclick="run()">執行</button>
+    </div>
+  </section>
+
+  <section class="wide">
+    <h2>壓力測試：微服務處理速度</h2>
+    <p class="muted" style="margin:0 0 6px;font-size:12px">只買直送、不打查詢；量每個服務「收到 → 做完」和整筆訂單（結帳 → 交給物流）。做事的是 loadtest/run.mjs，報告放 repo 旁邊的 ../tests。</p>
+    <div class="row">跑在
+      <span class="seg" id="lt-target"></span>
+      <span id="lt-mode-wrap">K8s 模式 <select id="lt-mode"></select></span>
+    </div>
+    <div class="row">世界
+      <span class="seg" id="lt-world"></span>
+      <span class="muted" id="lt-world-note" style="font-size:12px"></span>
+    </div>
+    <div class="row">
+      每秒下單 <input type="text" id="lt-levels" value="5,10,20" title="一階一階往上加，用逗號分隔">
+      每階 <input type="number" id="lt-hold" value="60" style="width:70px"> 秒
+      VU 上限 <input type="number" id="lt-maxvus" value="2000" style="width:80px" title="k6 最多同時幾個客人；不夠時會有客人進不來">
+      低流量基準（每秒 1 筆）<input type="number" id="lt-idle" value="0" style="width:70px"> 秒
+ 庫存分 <input type="number" id="lt-buckets" value="1" min="1" max="64" style="width:60px" title="同一個商品的庫存拆成幾列：1＝所有訂單搶同一列（會等鎖）"> 桶
+    </div>
+    <div class="row">
+      <label title="關：物流只收單、不回傳狀態（已收件→配送中→送達）。測試的終點是交給物流，狀態回呼只會佔住 core 的回程佇列"><input type="checkbox" id="lt-logi"> 物流狀態回呼（開＝每個包裹再回 3 則狀態）</label>
+    </div>
+    <div class="row">
+      這一輪的說明 <input type="text" id="lt-change" placeholder="選填：這一輪改了什麼（設定會自動帶進名稱）" style="width:260px">
+      <button class="primary" id="lt-run" onclick="loadtest()">執行壓測</button>
+    </div>
+    <p class="muted" id="lt-note" style="margin:4px 0 0;font-size:12px"></p>
+    <div id="tests" style="margin-top:8px"></div>
+  </section>
+
+  <section class="wide">
+    <h2>執行中／最近的工作</h2>
+    <div id="jobs" class="muted">還沒有</div>
+  </section>
+
+  <section class="wide">
+    <h2>結果</h2>
+    <div id="runs"></div>
+  </section>
+</main>
+<div id="report" onclick="if (event.target === this) this.style.display='none'"><div class="box" id="reportBox"></div></div>
+
+<script>
+const ICON = { passed: '<span class="ok">✅</span>', failed: '<span class="bad">❌</span>', invalid: '<span class="warn">⚠️</span>', error: '<span class="bad">💥</span>', running: '⏳' };
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+let state = { scenarios: [] };
+let rendered = false;
+
+async function api(path, body) {
+  const r = await fetch(path, body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {});
+  return r.json();
+}
+
+function renderSets() {
+  document.getElementById('sets').innerHTML = state.sets.length ? `<table><tr><th>套</th><th>連結</th><th>容器</th><th></th></tr>${state.sets.map((s) => `
+    <tr><td>第 ${s.n} 套<br><span class="muted">${s.project}</span>${s.busy ? `<br><span class="warn">使用中：${esc(s.busy)}</span>` : ''}</td>
+    <td><a href="http://localhost:${s.ports.partners}" target="_blank">廠商控制台（partners port ${s.ports.partners}）</a><br>
+        <a href="http://localhost:${s.ports.grafana}" target="_blank">debug log（Grafana port ${s.ports.grafana}）</a><br>
+        <span class="muted">core port ${s.ports.core}、BFF port ${s.ports.bff}、hub port ${s.ports.hub}、MySQL port ${s.ports.mysql}</span></td>
+    <td>${Object.keys(s.services).length} 個</td>
+    <td><button onclick="setRedeploy(${s.n})" title="重新 build image（程式改過才會重做）、重建容器；資料保留">重新部署</button>
+        <button onclick="setDown(${s.n})" ${s.busy ? 'title="正在使用中：按下去會排隊，等目前的操作結束才刪除"' : ''}>刪除</button></td></tr>
+    <tr><td></td><td colspan="3">${ddForm(s)}</td></tr>
+    <tr><td></td><td colspan="3"><div class="row">${bucketForm(s.n)}</div></td></tr>`).join('')}</table>` : '<p class="muted">沒有正在跑的套數</p>';
+}
+
+// Datadog 逐服務開關（預設全關）：勾選後按「套用」，那一套會重建有變動的服務
+const DD_SERVICES = ['core-api', 'core-relay', 'core-worker', 'core-scheduler', 'core-nginx', 'bff-gateway', 'hub', 'partners', 'mysql', 'redis'];
+const ddOpen = {};
+function ddForm(s) {
+  const on = s.datadog === 'all' ? DD_SERVICES : s.datadog && s.datadog !== 'off' ? s.datadog.split(',') : [];
+  const head = `<span class="muted">Datadog：</span>${on.length ? `<b>${on.length === DD_SERVICES.length ? '全部' : on.join('、')}</b>（env:sandbox-${String(s.n).padStart(2, '0')}）　APM：${s.apm ? '<b class="warn">開</b>（壓測會偏慢）' : '<b>關</b>（只送指標）'}` : '關閉'} <a href="#" onclick="ddOpen[${s.n}]=!ddOpen[${s.n}];renderSets();return false">${ddOpen[s.n] ? '收起' : '設定'}</a>`;
+  if (!ddOpen[s.n]) return head;
+  return head + `<div class="row" id="dd-${s.n}">${DD_SERVICES.map((x) => `<label><input type="checkbox" class="dd-svc" value="${x}" ${on.includes(x) ? 'checked' : ''}> ${x}</label>`).join(' ')}
+    <button onclick="document.querySelectorAll('#dd-${s.n} .dd-svc').forEach((i) => { i.checked = true; })">全選</button>
+    <button onclick="document.querySelectorAll('#dd-${s.n} .dd-svc').forEach((i) => { i.checked = false; })">全不選</button>
+    <label title="開：每個請求都送追蹤（看瀑布圖找單筆慢在哪）；很吃 CPU，壓測時要關"><input type="checkbox" id="dd-apm-${s.n}" ${s.apm ? 'checked' : ''}> <b>APM（追蹤）</b></label>
+    <button class="primary" onclick="ddApply(${s.n})">套用</button></div>
+    <p class="muted" style="margin:2px 0;font-size:12px">只開部分服務時，跨服務的 trace 會斷掉；要看完整的 Service Map，就把路徑上的服務都勾起來。</p>`;
+}
+async function ddApply(n) {
+  const services = [...document.querySelectorAll(`#dd-${n} .dd-svc:checked`)].map((i) => i.value);
+  const apm = document.getElementById(`dd-apm-${n}`).checked;
+  ddOpen[n] = false;
+  await api('/api/sets/datadog', { n, services, apm });
+  refresh();
+}
+
+// 庫存分桶（熱賣模式）：壓測跑到一半也可以改，5 秒內拆好；結果（每個商品幾桶）在「執行中的工作」
+const bk = {};   // 輸入到一半的值：表格每秒重畫，不記下來會被洗掉
+function bucketForm(where) {
+  const v = bk[where] ??= { n: 8, sku: '' };
+  return `<span class="muted">庫存分桶：</span>
+    <input type="number" id="bk-n-${where}" min="1" max="64" value="${esc(v.n)}" style="width:60px" oninput="bk['${where}'].n=this.value"> 桶
+    <input type="text" id="bk-sku-${where}" value="${esc(v.sku)}" placeholder="商品 SKU（空白＝全部）" style="width:200px" oninput="bk['${where}'].sku=this.value">
+    <button onclick="bucketApply('${where}')">套用</button>
+    <button onclick="bk['${where}'].n=1;document.getElementById('bk-n-${where}').value=1;bucketApply('${where}')" title="併回一桶">不分桶</button>`;
+}
+async function bucketApply(where) {
+  const target = document.getElementById(`bk-n-${where}`).value;
+  const skus = document.getElementById(`bk-sku-${where}`).value;
+  await api('/api/buckets', { n: where === 'k8s' ? null : where, target, skus });
+  refresh();
+}
+
+function renderScenarios() {
+  if (rendered) return;   // 勾選狀態不要被每秒的更新洗掉
+  rendered = true;
+  const group = (title, list) => list.length ? `<p class="muted" style="margin:10px 0 2px">${title}</p>` + list.map((s) => `
+    <label class="sc"><input type="checkbox" value="${esc(s.name)}"><span><b>${esc(s.title)}</b> <span class="tag">${esc(s.name)}</span><small>${esc(s.description)}</small></span></label>`).join('') : '';
+  document.getElementById('scenarios').innerHTML =
+    group('正確性（CI 會跑）', state.scenarios.filter((s) => s.kind === 'test')) +
+    group('壓力／耐久（只在本機手動跑，一次一套）', state.scenarios.filter((s) => s.kind !== 'test'));
+}
+
+function renderJobs() {
+  document.getElementById('jobs').innerHTML = state.jobs.length ? state.jobs.map((j) => `
+    <div style="margin-bottom:10px"><b>${ICON[j.status] ?? ''} #${j.id} ${esc(j.label)}</b>
+    <span class="muted">${new Date(j.started).toLocaleTimeString()}${j.ended ? `，${Math.round((j.ended - j.started) / 1000)} 秒` : ''}</span>
+    <pre>${esc(j.tail.join('\n'))}</pre></div>`).join('') : '還沒有';
+}
+
+function renderRuns() {
+  document.getElementById('runs').innerHTML = state.runs.length ? state.runs.map((run) => `
+    <p style="margin:12px 0 4px"><b>${esc(run.stamp)}</b> <span class="muted">image ${esc(run.tag ?? '')}${run.total ? `，總時間 ${Math.floor(run.total / 60)} 分 ${Math.round(run.total % 60)} 秒` : '（執行中或中斷）'}</span></p>
+    <table><tr><th></th><th>情境</th><th>seed</th><th>套</th><th>訂單（已付款）</th><th>秒</th><th></th></tr>
+    ${run.results.map((r) => `<tr><td>${ICON[r.status]}</td><td>${esc(r.title)} <span class="tag">${esc(r.scenario)}</span></td><td>${esc(r.seed)}</td><td>${r.set}</td>
+      <td>${r.orders ? `${r.orders.total}（${r.orders.paid}）` : '-'}</td><td>${Math.round(r.seconds)}</td>
+      <td><a href="#" onclick="showReport('${esc(run.stamp)}/${esc(r.dir)}');return false">報告</a></td></tr>`).join('')}</table>`).join('') : '<p class="muted">還沒有結果</p>';
+}
+
+async function refresh() {
+  state = await api('/api/state');
+  // 正在勾 Datadog、正在輸入桶數時不要重畫，輸入會被洗掉
+  if (!Object.values(ddOpen).some(Boolean) && !document.getElementById('sets').contains(document.activeElement)) renderSets();
+  renderScenarios(); renderJobs(); renderRuns(); renderTests(); renderModeRow(); renderRuntimeRow();
+}
+
+// ── 叢集地圖：依服務上色，Pod 新冒出來／被排到哪個 Node 一眼看得到
+const COLORS = { 'core-api': '#63e6be', 'core-worker': '#96f2d7', 'core-relay': '#c3fae8', 'core-scheduler': '#c3fae8', 'core-seed': '#e6fcf5',
+  bff: '#74c0fc', 'hub-api': '#b197fc', 'hub-payment': '#9775fa', 'hub-payment-reconcile': '#d0bfff', 'hub-logistics': '#845ef7', 'hub-clinic': '#e5dbff', 'hub-line': '#e5dbff', 'hub-core': '#f3f0ff',
+  partners: '#ffa8a8', storefront: '#ffc078', mysql: '#ced4da', redis: '#ced4da', localstack: '#ced4da', k6: '#ffe066' };
+const color = (s) => COLORS[s] ?? '#dee2e6';
+document.getElementById('k8s-buckets').innerHTML = bucketForm('k8s');
+async function refreshCluster() {
+  const c = await api('/api/cluster').catch(() => ({ available: false }));
+  document.getElementById('cluster-section').style.display = c.available ? '' : 'none';
+  cluster = c;
+  renderLoadtest();
+  if (!c.available) return;
+  renderModeRow(); renderRuntimeRow();
+  const services = [...new Set(c.pods.map((p) => p.service))].sort();
+  document.getElementById('legend').innerHTML = services.map((s) => `<span><span class="chip" style="background:${color(s)}"></span>${esc(s)} ×${c.pods.filter((p) => p.service === s && p.status !== 'Terminating').length}</span>`).join('');
+  const pending = c.pods.filter((p) => !p.node);
+  document.getElementById('nodes').innerHTML = c.nodes.map((n) => {
+    const pods = c.pods.filter((p) => p.node === n.name).sort((a, b) => a.service.localeCompare(b.service));
+    return `<div class="node"><h3><span>${n.ready ? '🟢' : '🔴'} ${esc(n.name.replace('demo-shop-', ''))} <span class="muted">${n.role}</span></span><span class="muted">CPU ${n.cpu ?? '-'}　記憶體 ${n.mem ?? '-'}　${pods.length} 個 Pod</span></h3>
+      <div class="pods">${pods.map((p) => `<span class="pod ${p.status} ${p.status === 'Ready' || p.status === 'Terminating' ? '' : 'pending'}" style="background:${color(p.service)}" title="${esc(p.name)}（${esc(p.status)}）">${esc(p.service)}</span>`).join('')}</div></div>`;
+  }).join('') + (pending.length ? `<div class="node"><h3>⏳ 還沒排到 Node</h3><div class="pods">${pending.map((p) => `<span class="pod pending" style="background:${color(p.service)}">${esc(p.service)}</span>`).join('')}</div></div>` : '');
+  renderScalers(c);
+}
+refreshCluster();
+setInterval(refreshCluster, 2000);
+
+// ── 每個服務的 Pod 數：自動擴充的狀況＋手動 ＋／－（按下去就固定成那個數字；「自動」模式全部還原）
+const pendingScale = {};   // 剛按過、K8s 還沒反映的：先顯示目標數字
+let scalersKey = '';
+function renderScalers(c) {
+  const hpa = Object.fromEntries(c.autoscalers.map((h) => [h.name, h]));
+  const rows = (c.scalable ?? []).map((s) => ({ ...s, h: hpa[s.name] }));
+  const key = JSON.stringify([rows, pendingScale]);
+  if (key === scalersKey) return;   // 沒變就不重畫：重畫的瞬間按下去會沒反應
+  scalersKey = key;
+  document.getElementById('scalers').innerHTML = `<table><tr><th>服務</th><th>擴充依據</th><th>Pod 數（Ready／目標）</th><th>手動調整</th><th>自動擴充的範圍</th><th>現在的數值</th></tr>${rows.map((s) => {
+    const target = pendingScale[s.name] ?? s.pinned ?? s.desired;
+    return `<tr><td><span class="chip" style="background:${color(s.name)}"></span>${esc(s.name)}</td><td>${esc(s.by)}</td>
+      <td><b>${s.ready}</b>／${s.desired}${s.ready !== s.desired ? ' <span class="warn">⏳</span>' : ''}</td>
+      <td><span class="seg"><button onclick="scaleSvc('${esc(s.name)}', ${target - 1})" ${target <= 1 ? 'disabled' : ''}>−</button><button disabled style="min-width:34px">${target}</button><button onclick="scaleSvc('${esc(s.name)}', ${target + 1})">＋</button></span>
+        ${s.pinned != null || pendingScale[s.name] ? '<span class="tag">固定</span>' : `<span class="muted" style="font-size:12px">${s.h ? '自動' : '原本的數量'}</span>`}</td>
+      <td>${s.h ? `${s.h.min}～${s.h.max}` : '-'}</td><td>${s.h ? esc(s.h.metric) : '-'}</td></tr>`;
+  }).join('')}</table>
+  <p class="muted" style="margin:4px 0 0;font-size:12px">按 ＋／－ 就把那個服務固定成那個數字（不再自動擴充），其他服務不動；壓測中也可以按。按上面的「自動」全部還原。</p>`;
+}
+async function scaleSvc(service, replicas) {
+  pendingScale[service] = replicas;
+  renderScalers(cluster);
+  const r = await api('/api/k8s/scale', { service, replicas });
+  if (r.error) alert(r.error);
+  setTimeout(() => { delete pendingScale[service]; }, 4000);   // K8s 的設定改好之後，改回顯示實際的數字
+}
+
+// ── K8s 模式、重新部署
+const MODE_LABEL = { 'k8s-single': '單個', 'k8s-auto': '自動', 'k8s-max': '直接最大', 'k8s-fixed4': '固定 4 個', 'k8s-go-best': 'Go 最優', 'k8s-autoscale': '自動', 'k8s-prepared': '直接最大' };   // 後兩個是舊報告的名字
+let cluster = { available: false };
+// 切換要約 20 秒（改 HPA／KEDA → 等 Pod 開出來或關掉）：按下去馬上顯示「切換中」，做完之前不能再按
+let switching = null;   // { mode, jobId }
+async function k8sMode(mode) {
+  if (switching || mode === cluster.mode) return;
+  switching = { mode, jobId: null };
+  renderModeRow();
+  const job = await api('/api/k8s/mode', { mode });
+  if (job.error) { switching = null; modeRowKey = ''; renderModeRow(); return alert(job.error); }
+  switching.jobId = job.id;
+  refresh();
+}
+let modeRowKey = '';
+function renderModeRow() {
+  const c = cluster;
+  if (!c.available) return;
+  // 工作做完（成功或失敗）就結束「切換中」
+  if (switching?.jobId) {
+    const j = (state.jobs ?? []).find((x) => x.id === switching.jobId);
+    if (j && j.status !== 'running') switching = null;
+  }
+  const locked = Boolean(state.loadtestRunning);
+  const key = JSON.stringify([c.mode, switching?.mode, locked]);
+  if (key === modeRowKey) return;   // 沒變就不重畫：重畫的瞬間按下去會沒反應
+  modeRowKey = key;
+  const shown = switching?.mode ?? c.mode;
+  document.getElementById('k8s-mode').innerHTML = `<span class="muted">Pod 數模式：</span><span class="seg">${Object.entries(c.modes).map(([m, desc]) =>
+    `<button class="${m === shown ? 'on' : ''}" title="${esc(desc)}" ${switching ? 'disabled' : ''} onclick="k8sMode('${m}')">${MODE_LABEL[m] ?? m}</button>`).join('')}</span>
+    <span class="muted" style="font-size:12px">${switching ? `<span class="warn">⏳ 切換中…（改設定、等 Pod 增減，約 20 秒）</span>` : locked ? `<span class="warn">壓測進行中：可以手動調整；調過的話，跑完保留你調的</span>` : c.mode === 'custom' ? '手動調過個別服務（下面的表格）；按「自動」全部還原' : `${esc(c.modes[c.mode] ?? '')}（切換後一直維持）`}</span>
+    <span style="flex:1"></span><button ${locked || switching ? 'disabled' : ''} onclick="k8sRedeploy()" title="重新 build image、部署到 K8s（scripts/bootstrap.sh，約幾分鐘；也會重新啟動 sandbox 第 1 套）">重新部署 K8s</button>`;
+}
+// core-api 的 PHP 執行方式：切換要重新部署（約 2～3 分鐘），做完之前不能再按
+let runtimeSwitching = null;   // { runtime, jobId }
+async function k8sRuntime(runtime) {
+  if (runtimeSwitching || runtime === cluster.runtime) return;
+  if (!confirm(`core-api 改成 ${{ octane: 'Octane（Swoole）', go: 'Go' }[runtime] ?? 'PHP-FPM'}？會寫進 .env 的 CORE_RUNTIME 並重新部署 K8s（約 2～3 分鐘）`)) return;
+  runtimeSwitching = { runtime, jobId: null };
+  renderRuntimeRow();
+  const job = await api('/api/k8s/runtime', { runtime });
+  if (job.error) { runtimeSwitching = null; runtimeRowKey = ''; renderRuntimeRow(); return alert(job.error); }
+  runtimeSwitching.jobId = job.id;
+  refresh();
+}
+let runtimeRowKey = '';
+function renderRuntimeRow() {
+  const c = cluster;
+  if (!c.available) return;
+  if (runtimeSwitching?.jobId) {
+    const j = (state.jobs ?? []).find((x) => x.id === runtimeSwitching.jobId);
+    if (j && j.status !== 'running') runtimeSwitching = null;
+  }
+  const locked = Boolean(state.loadtestRunning || state.k8sBusy);
+  const key = JSON.stringify([c.runtime, runtimeSwitching?.runtime, locked]);
+  if (key === runtimeRowKey) return;
+  runtimeRowKey = key;
+  const shown = runtimeSwitching?.runtime ?? c.runtime;
+  document.getElementById('k8s-runtime').innerHTML = `<span class="muted">core-api 執行方式：</span><span class="seg">${[['fpm', 'PHP-FPM', '每個請求重新啟動框架（預設）'], ['octane', 'Octane', 'Laravel Octane＋Swoole：框架只啟動一次，worker 常駐'], ['go', 'Go', '壓測路徑（API、relay、worker）換成 Go 版（services/core-go），只支援直送商品；dev-container 下次部署也會用 Go 版']].map(([r, label, desc]) =>
+    `<button class="${r === shown ? 'on' : ''}" title="${desc}" ${runtimeSwitching || (locked && r !== shown) ? 'disabled' : ''} onclick="k8sRuntime('${r}')">${label}</button>`).join('')}</span>
+    <span class="muted" style="font-size:12px">${runtimeSwitching ? '<span class="warn">⏳ 重新部署中…（約 2～3 分鐘）</span>' : locked ? '壓測或其他 K8s 操作進行中，結束後才能切換' : '切換會重新部署 K8s（寫進 .env 的 CORE_RUNTIME）'}</span>`;
+}
+
+async function k8sRedeploy() {
+  if (!confirm('重新部署 K8s？（重新 build image、terraform apply，約幾分鐘；跑到一半的壓測會受影響）')) return;
+  await api('/api/k8s/redeploy', {});
+  refresh();
+}
+
+// ── 壓測：跑在 dev-container 第 1 套或 K8s
+let ltTarget = 'dev-container';
+let ltWorld = 'perfect';
+const WORLDS = [['perfect', '完美世界', '廠商延遲全部 0、沒有錯誤：量的只有我們自己的服務'],
+  ['realistic', '真實世界', '金流 0.15～1.4 秒、物流 0.1～0.5 秒、0.5% 錯誤：看真實情況下撐不撐得住'],
+  ['perfect,realistic', '兩個都跑', '先完美世界、再真實世界，各自重建一次環境（時間加倍）']];
+function renderWorld() {
+  document.getElementById('lt-world').innerHTML = WORLDS.map(([w, label]) => `<button class="${w === ltWorld ? 'on' : ''}" onclick="ltWorld='${w}';renderWorld()">${label}</button>`).join('');
+  document.getElementById('lt-world-note').textContent = WORLDS.find(([w]) => w === ltWorld)[2];
+}
+renderWorld();
+let ltModeTouched = false;
+let ltKey = '';
+function renderLoadtest() {
+  const k8sOk = cluster.available;
+  if (!k8sOk && ltTarget === 'k8s') ltTarget = 'dev-container';
+  const key = JSON.stringify([k8sOk, ltTarget, cluster.mode, ltModeTouched]);
+  if (key === ltKey) return;   // 沒變就不重畫（重畫的瞬間按下去會沒反應）
+  ltKey = key;
+  document.getElementById('lt-target').innerHTML = [['dev-container', 'dev-container 第 1 套（docker）'], ['k8s', 'K8s']].map(([t, label]) =>
+    `<button class="${t === ltTarget ? 'on' : ''}" ${t === 'k8s' && !k8sOk ? 'disabled title="K8s 叢集沒有在跑"' : ''} onclick="ltTarget='${t}';renderLoadtest()">${label}</button>`).join('');
+  document.getElementById('lt-mode-wrap').style.display = ltTarget === 'k8s' ? '' : 'none';
+  const sel = document.getElementById('lt-mode');
+  if (k8sOk && !sel.options.length) {
+    sel.innerHTML = Object.entries(cluster.modes).map(([m, desc]) => `<option value="${m}">${MODE_LABEL[m] ?? m}：${esc(desc)}</option>`).join('');
+    sel.onchange = () => { ltModeTouched = true; };
+  }
+  if (k8sOk && !ltModeTouched && cluster.mode) sel.value = cluster.mode;   // 預設＝K8s 現在的模式
+  document.getElementById('lt-note').textContent = ltTarget === 'k8s'
+    ? '開跑時切到選的模式，跑完切回開跑前的模式；會重建 K8s 的資料庫，庫存照上面的桶數重新拆（叢集地圖下面的分桶會被蓋掉）。'
+    : '開跑前重新部署 dev-container 第 1 套（程式改過才重新 build）；會重建它的資料庫，庫存照上面的桶數重新拆。';
+}
+async function loadtest() {
+  if (state.loadtestRunning) return alert('已經有一輪壓測在跑，等它結束再開（進度在「執行中／最近的工作」）');
+  if (state.k8sBusy || switching) return alert('K8s 正在切換模式或重新部署，等它做完再開壓測');
+  document.getElementById('lt-run').disabled = true;   // 沒有確認視窗了：按下去馬上鎖住，連點不會開兩輪
+  const v = (id) => document.getElementById(id).value.trim();
+  const body = { target: ltTarget, worlds: ltWorld, mode: v('lt-mode'), levels: v('lt-levels'), hold: v('lt-hold'), maxVus: v('lt-maxvus'), idle: v('lt-idle'), buckets: v('lt-buckets'), logisticsCallbacks: document.getElementById('lt-logi').checked, change: v('lt-change') };
+  const r = await api('/api/loadtest', body);
+  if (r.error) alert(r.error);
+  refresh();
+}
+function renderTests() {
+  const btn = document.getElementById('lt-run');
+  btn.disabled = Boolean(state.loadtestRunning);
+  btn.textContent = state.loadtestRunning ? '⏳ 壓測進行中…' : '執行壓測';
+  const t = state.tests ?? [];
+  document.getElementById('tests').innerHTML = t.length ? `<table><tr><th>時間</th><th>跑在</th><th>世界</th><th>庫存</th><th>物流回呼</th><th>core-api</th><th>說明</th><th>每秒下單</th><th>APM</th><th></th></tr>${t.map((x) => `
+    <tr><td>${esc(x.startedAt)}</td><td>${x.mode === 'sandbox' || x.mode === 'dev-container' ? 'dev-container' : `K8s ${MODE_LABEL[x.mode] ?? esc(x.mode)}`}</td><td>${(x.worlds ?? []).map((w) => ({ perfect: '完美', realistic: '真實' }[w] ?? esc(w))).join('＋') || '-'}</td><td>${x.buckets ?? 1} 桶</td><td>${x.logisticsCallbacks === false ? '關' : '開'}</td><td>${{ fpm: 'FPM', octane: 'Octane', go: 'Go' }[x.runtime] ?? (x.runtime ? esc(x.runtime) : '<span class="muted" title="舊的報告沒有記錄執行方式；當時都是 PHP-FPM">FPM（舊）</span>')}</td><td>${esc(x.change ?? '-')}${x.directOnly ? ' <span class="tag">只買直送</span>' : ''}</td>
+    <td>${esc((x.levels ?? []).join('、'))}</td><td>${x.apm == null ? '-' : x.apm ? '<span class="warn">開（偏慢）</span>' : '關'}</td>
+    <td>${x.hasHtml ? `<a href="/tests/${encodeURIComponent(x.dir)}/report.html" target="_blank">報告</a>` : '<span class="muted">跑完才有</span>'}</td></tr>`).join('')}</table>` : '<p class="muted">還沒有壓測報告</p>';
+}
+
+async function showReport(path) {
+  const md = await fetch(`/runs/${path}/report.md`).then((r) => r.text());
+  // 報告裡的 logs/xxx.jsonl 連到實際檔案
+  document.getElementById('reportBox').innerHTML = marked.parse(md).replace(/<code>(logs\/[^<]+)<\/code>/g, `<a href="/runs/${path}/$1" target="_blank"><code>$1</code></a>`);
+  document.getElementById('report').style.display = 'block';
+}
+
+async function setUp() { await api('/api/sets/up', { n: document.getElementById('newSet').value }); refresh(); }
+async function setRedeploy(n) { await api('/api/sets/up', { n }); refresh(); }
+async function setDown(n) { if (confirm(`刪除第 ${n} 套（資料也會刪掉）？`)) { await api('/api/sets/down', { n }); refresh(); } }
+async function run() {
+  const v = (id) => document.getElementById(id).value.trim();
+  const scenarios = [...document.querySelectorAll('#scenarios input:checked')].map((i) => i.value);
+  if (!scenarios.length && !confirm('沒有勾選情境：要跑全部正確性情境嗎？')) return;
+  await api('/api/run', { scenarios, sets: v('sets-input'), seed: v('seed'), only: v('only'), repeat: v('repeat') === '1' ? '' : v('repeat'), rps: v('rps'), hold: v('hold'), duration: v('duration'), noBuild: document.getElementById('noBuild').checked, force: document.getElementById('force').checked });
+  refresh();
+}
+
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>

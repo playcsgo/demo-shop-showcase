@@ -1,0 +1,107 @@
+# sandbox 情境測試（併發正確性）：每個 PR 自動跑；壓力／耐久不在 CI 跑（只在本機手動跑）
+#
+# commit message（或 PR 標籤）的關鍵字：
+#   [ci-debug]    不管過不過，全部 log 都匯出成 artifact（平常只匯出「失敗相關訂單」的 log）
+#   [ci-datadog]  全部服務也送 Datadog（env:ci，version＝commit；需要 secrets.DD_API_KEY_CI，沒設就略過並提醒）
+# 為什麼用 commit message：很多公司的 repo 只有主管能手動觸發 workflow、加標籤，commit message 每個人都能寫
+#
+# 失敗時：
+#   - 這次執行的頁面（Summary）直接顯示報告：哪邊 fail、為什麼、在什麼情況下、重現指令
+#   - artifact「sandbox-runs」：失敗訂單的完整 log、資料庫快照
+#   - 在自己電腦用 Grafana 查：scripts/sandbox.sh logs <這次執行的 run id>
+name: sandbox
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: sandbox-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scenarios:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # 放在 job 層級：step 的 if 才讀得到（step 自己的 env 在 if 裡看不到）
+      DD_API_KEY: ${{ secrets.DD_API_KEY_CI }}   # CI 專用的 key：外洩時可以單獨撤銷
+      DD_SITE: ${{ vars.DD_SITE || 'ap1.datadoghq.com' }}
+      DD_ENV_NAME: ci
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 讀取 commit message／PR 標籤的開關
+        id: flags
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
+        run: |
+          msg=$(git log -1 --format=%B "$HEAD_SHA")
+          debug=false; datadog=false
+          [[ "$msg" == *"[ci-debug]"* || " $PR_LABELS " == *" ci-debug "* ]] && debug=true
+          [[ "$msg" == *"[ci-datadog]"* || " $PR_LABELS " == *" ci-datadog "* ]] && datadog=true
+          echo "debug=$debug" >> "$GITHUB_OUTPUT"
+          echo "datadog=$datadog" >> "$GITHUB_OUTPUT"
+          echo "debug=$debug datadog=$datadog"
+
+      - name: Datadog 提醒
+        if: steps.flags.outputs.datadog == 'true' && env.DD_API_KEY == ''
+        run: echo "::warning::[ci-datadog]：沒有設定 secrets.DD_API_KEY_CI，這次不送 Datadog"
+
+      # 一般的 GitHub runner（4 核 16 GB）開 2 套剛好；公司自己的機器比較強可以調高 --parallel
+      - name: 跑情境
+        run: |
+          extra=""
+          [[ "${{ steps.flags.outputs.debug }}" == "true" ]] && extra="--export-all-logs"
+          [[ "${{ steps.flags.outputs.datadog }}" == "true" && -n "$DD_API_KEY" ]] && extra="$extra --datadog all"
+          # 時間壓縮 ×5（所有設定出來的時間同比例縮；真實處理時間的基準沒量過時用 100 ms）
+          scripts/sandbox.sh run --parallel 2 --time-scale 5 $extra
+
+      # 失敗時看環境本身有沒有問題（log 有沒有收進 Loki、各容器狀態）；之後才清掉
+      # [ci-debug] 也跑：log 是空的時候，情境不一定會失敗
+      - name: 診斷
+        if: failure() || steps.flags.outputs.debug == 'true'
+        run: |
+          docker version --format 'Docker {{.Server.Version}}（API {{.Server.APIVersion}}，最低 {{.Server.MinAPIVersion}}）'
+          ls -l /var/run/docker.sock
+          docker ps --format '{{.Names}}\t{{.Status}}' | sort
+          for n in 01 02; do
+            echo "== demo-sb$n Loki 收到的服務：$(curl -s localhost:280$n/api/datasources/proxy/uid/loki/loki/api/v1/label/service/values)"
+            echo "-- Alloy 計數（讀到／送出／丟掉）"
+            docker exec demo-sb$n-grafana-1 wget -qO- http://alloy:12345/metrics 2>&1 \
+              | grep -E '^(loki_source_docker_target_entries_total|loki_write_(sent|dropped)_entries_total|prometheus_sd_refresh_failures_total)' | grep -v ' 0$' || true
+            docker exec demo-sb$n-alloy-1 printenv COMPOSE_PROJECT || true
+            docker logs --tail 15 demo-sb$n-alloy-1 2>&1 || true
+            docker logs --tail 10 demo-sb$n-loki-1 2>&1 || true
+          done
+
+      - name: 清理
+        if: always()
+        run: for n in 1 2; do scripts/sandbox.sh down $n || true; done
+
+      - name: 報告放到這次執行的頁面
+        if: always()
+        run: |
+          run=$(ls -d sandbox-runs/*/ 2>/dev/null | tail -1)
+          [[ -z "$run" ]] && exit 0
+          cat "$run/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          for r in "$run"*/report.md; do
+            grep -q '^# ✅' "$r" && continue
+            { echo; echo '---'; cat "$r"; } >> "$GITHUB_STEP_SUMMARY"
+          done
+
+      - name: 上傳 log 和快照（失敗或 [ci-debug] 時）
+        if: failure() || steps.flags.outputs.debug == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sandbox-runs
+          path: sandbox-runs/
+          retention-days: 14
