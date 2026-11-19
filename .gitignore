@@ -1,0 +1,38 @@
+# 秘密與本機設定
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# 系統與編輯器
+.DS_Store
+.idea/
+.vscode/
+
+# 相依套件與產出
+node_modules/
+vendor/
+dist/
+coverage/
+storage/*.key
+loadtest/results/
+tools/.deps/
+*.tsbuildinfo
+sandbox-runs/
+.sandbox/
+
+# Terraform：state 裡有密鑰；provider 下載的檔案
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+# kind provider 產生的叢集連線設定（有私鑰）
+deploy/terraform/local/*-config
+
+# AI 客服的固定圖片有版權，不進 Git（scripts/support-assets.sh）
+services/support/api/assets/
+services/support/api/support-eval-runs/
+
+# taste-skill 的工作檔（AIC-019）
+.taste-skill/

@@ -1,0 +1,104 @@
+# sandbox 測試套數的 Datadog（疊加在 compose.sandbox.yaml 上）：逐個服務開關，預設全關
+#   scripts/sandbox.sh datadog 1 core-api,hub     只開這兩個
+#   scripts/sandbox.sh datadog 1 all                          全部
+#   scripts/sandbox.sh datadog 1 off                          關掉（Agent 也一起移除）
+# 也可以在 UI 上勾選。選擇存在 .sandbox/datadog/demo-sbNN，之後 up 都會沿用
+#
+# 每個服務三個開關由 scripts/sandbox.sh 算好傳進來（沒開的服務全部是空的／false）：
+#   DDT_<服務>：trace（DD_TRACE_ENABLED）
+#   DDH_<服務>：DogStatsD 送到哪（沒開就空字串 → core、hub 的業務指標不送）
+#   DD_LOGS_INCLUDE：Agent 只收這些容器的 log
+# 只開部分服務時，跨服務的 trace 會斷掉（例如只開 core，Service Map 上就只有 core）
+#
+# 資料用 env 區分：日常那套是 demo，第 N 套是 sandbox-NN，CI 是 ci（DD_ENV）；version＝image 的 git commit
+
+x-php-dd: &php-dd
+  DD_ENV: ${DD_ENV_NAME:-sandbox}
+  DD_VERSION: ${SANDBOX_TAG:-latest}
+  DD_LOGS_INJECTION: "true"
+  DD_TRACE_CLI_ENABLED: "true"
+  DD_TRACE_GENERATE_ROOT_SPAN: "false"
+
+x-node-dd: &node-dd
+  NODE_OPTIONS: --import dd-trace/initialize.mjs
+  DD_ENV: ${DD_ENV_NAME:-sandbox}
+  DD_VERSION: ${SANDBOX_TAG:-latest}
+  DD_LOGS_INJECTION: "true"
+
+services:
+  datadog-agent:
+    image: datadog/agent:7.84.2
+    environment:
+      DD_API_KEY: ${DD_API_KEY:?需要 DD_API_KEY（本機讀根目錄 .env，CI 用 secrets）}
+      DD_SITE: ${DD_SITE:-ap1.datadoghq.com}
+      DD_HOSTNAME: ${SANDBOX_PROJECT:-demo-sb01}
+      DD_ENV: ${DD_ENV_NAME:-sandbox}
+      DD_APM_ENABLED: "true"
+      DD_APM_NON_LOCAL_TRAFFIC: "true"
+      DD_DOGSTATSD_NON_LOCAL_TRAFFIC: "true"
+      DD_LOGS_ENABLED: "true"
+      # 只看這一套的容器（M12 的教訓：不要把同一台機器上其他專案、其他套數送出去）
+      DD_CONTAINER_EXCLUDE: "name:.*"
+      DD_CONTAINER_INCLUDE: "name:^${SANDBOX_PROJECT:-demo-sb01}-"
+      # log 只收有勾選的服務
+      DD_CONTAINER_EXCLUDE_LOGS: "name:.*"
+      DD_CONTAINER_INCLUDE_LOGS: ${DD_LOGS_INCLUDE:-name:^none-selected}
+      DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL: "false"
+      DD_PROCESS_AGENT_ENABLED: "false"
+      DD_APM_IGNORE_RESOURCES: "GET /fpm-status,GET /fpm-ping,GET /health,GET /up"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /proc/:/host/proc/:ro
+      - /sys/fs/cgroup/:/host/sys/fs/cgroup:ro
+
+  # MySQL、Redis：勾選了才讓 Agent 抓指標（Autodiscovery 的 check 寫在 label 裡，沒勾就給空的）
+  mysql:
+    labels:
+      com.datadoghq.tags.service: mysql
+      com.datadoghq.ad.checks: ${DDC_MYSQL:-{}}
+  redis:
+    labels:
+      com.datadoghq.tags.service: redis
+      com.datadoghq.ad.checks: ${DDC_REDIS:-{}}
+
+  core-init:
+    environment: { DD_TRACE_ENABLED: "false" }
+  core-api:
+    # API（FPM）：每個請求要有自己的 root span，log 的 dd.trace_id 才有值；false 只給常駐的 CLI 程序（relay、worker）
+    environment: { <<: *php-dd, DD_SERVICE: core-api, DD_TRACE_ENABLED: "${DDT_CORE_API:-false}", DD_AGENT_HOST: "${DDH_CORE_API:-}", DD_TRACE_GENERATE_ROOT_SPAN: "true" }
+    labels:
+      com.datadoghq.tags.service: core-api
+      com.datadoghq.ad.logs: '[{"source": "php", "service": "core-api"}]'
+  core-relay:
+    environment: { <<: *php-dd, DD_SERVICE: core-relay, DD_TRACE_ENABLED: "${DDT_CORE_RELAY:-false}", DD_AGENT_HOST: "${DDH_CORE_RELAY:-}" }
+    labels:
+      com.datadoghq.tags.service: core-relay
+      com.datadoghq.ad.logs: '[{"source": "php", "service": "core-relay"}]'
+  core-worker:
+    environment: { <<: *php-dd, DD_SERVICE: core-worker, DD_TRACE_ENABLED: "${DDT_CORE_WORKER:-false}", DD_AGENT_HOST: "${DDH_CORE_WORKER:-}" }
+    labels:
+      com.datadoghq.tags.service: core-worker
+      com.datadoghq.ad.logs: '[{"source": "php", "service": "core-worker"}]'
+  core-scheduler:
+    environment: { <<: *php-dd, DD_SERVICE: core-scheduler, DD_TRACE_ENABLED: "${DDT_CORE_SCHEDULER:-false}", DD_AGENT_HOST: "${DDH_CORE_SCHEDULER:-}", DD_TRACE_GENERATE_ROOT_SPAN: "true" }
+    labels:
+      com.datadoghq.tags.service: core-scheduler
+      com.datadoghq.ad.logs: '[{"source": "php", "service": "core-scheduler"}]'
+  core-nginx:
+    labels:
+      com.datadoghq.tags.service: core-nginx
+      com.datadoghq.ad.logs: '[{"source": "nginx", "service": "core-nginx"}]'
+  bff-gateway:
+    environment: { <<: *node-dd, DD_SERVICE: bff-gateway, DD_TRACE_ENABLED: "${DDT_BFF_GATEWAY:-false}", DD_AGENT_HOST: "${DDH_BFF_GATEWAY:-}" }
+    labels:
+      com.datadoghq.tags.service: bff-gateway
+      com.datadoghq.ad.logs: '[{"source": "nodejs", "service": "bff-gateway"}]'
+  hub:
+    environment: { <<: *node-dd, DD_SERVICE: hub, DD_TRACE_ENABLED: "${DDT_HUB:-false}", DD_AGENT_HOST: "${DDH_HUB:-}" }
+    labels:
+      com.datadoghq.tags.service: hub
+      com.datadoghq.ad.logs: '[{"source": "nodejs", "service": "hub"}]'
+  partners:
+    labels:
+      com.datadoghq.tags.service: partners
+      com.datadoghq.ad.logs: '[{"source": "nodejs", "service": "partners"}]'

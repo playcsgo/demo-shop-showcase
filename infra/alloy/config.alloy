@@ -1,0 +1,58 @@
+// Grafana Alloy：讀容器的 stdout → 整理 → 推給 Loki（M14）
+// 只收這個 demo 的容器（M12 的教訓：不要把同一台機器上其他專案的 log 收進來）
+// COMPOSE_PROJECT：日常那套是 demo-claude；sandbox 每套有自己的 Alloy，只收自己那套（demo-sb01、demo-sb02…）
+
+discovery.docker "demo" {
+  host = "unix:///var/run/docker.sock"
+  refresh_interval = "5s"   // 預設約 1 分鐘才發現新容器；sandbox 的套數活得很短，要快一點
+  filter {
+    name   = "label"
+    values = ["com.docker.compose.project=" + sys.env("COMPOSE_PROJECT")]
+  }
+}
+
+// 標籤只放種類少的欄位：service（compose 服務名）
+discovery.relabel "demo" {
+  targets = discovery.docker.demo.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+  // 觀測工具自己的 log、LocalStack（很吵）不收
+  rule {
+    source_labels = ["service"]
+    regex         = "alloy|loki|grafana|localstack"
+    action        = "drop"
+  }
+}
+
+loki.source.docker "demo" {
+  host          = "unix:///var/run/docker.sock"
+  targets       = discovery.relabel.demo.output
+  relabel_rules = discovery.relabel.demo.rules
+  forward_to    = [loki.process.json.receiver]
+}
+
+// PHP（FlatJsonFormatter）和 Node（pino）都輸出 {"level":"info",...}；level 設成標籤方便篩選
+// 非 JSON 的行（nginx、FPM 自己的訊息）照樣收，只是沒有 level
+loki.process "json" {
+  // 排程器自己每秒印的「Running ['artisan' …] DONE」不是 log，丟掉；排程指令寫的 JSON log 照收
+  stage.match {
+    selector = "{service=\"core-scheduler\"} !~ \"^\\\\{\""
+    action   = "drop"
+  }
+  stage.json {
+    expressions = { level = "level" }
+  }
+  stage.labels {
+    values = { level = "" }
+  }
+  forward_to = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

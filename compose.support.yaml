@@ -1,0 +1,71 @@
+# AI 客服：商店的一個功能，但有自己的容器和資料庫（對話、提案、AI 紀錄）。不參與壓力測試
+#   商品、訂單、退款都問商店的 core-api（AIC-014）：要先開商店（scripts/up.sh）
+#   操作：scripts/support.sh
+name: demo-support
+
+services:
+  support-mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: support
+      MYSQL_USER: support
+      MYSQL_PASSWORD: support
+    ports: ["127.0.0.1:${SUPPORT_DB_PORT:-36306}:3306"]
+    volumes:
+      - support-mysql-data:/var/lib/mysql
+      - ./services/support/api/docker/mysql-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot"]
+      interval: 5s
+      retries: 20
+
+  support:
+    build: ./services/support/api
+    init: true # Node 當 PID 1 不會回收 CLI 留下的子程序
+    command: ["npm", "run", "start:dev"]
+    environment:
+      SUPPORT_CONTAINER: "1"
+      DB_HOST: support-mysql
+      SUPPORT_TRUSTED_PROXY_HOST: support-web # 只信任 web 容器帶的 X-Forwarded-For
+      SUPPORT_WEB_ORIGIN: "http://localhost:${SUPPORT_WEB_PORT:-36173},http://localhost:${STOREFRONT_PORT:-15173}" # 控制台和商店（客戶的對話框，AIC-018）
+      CORE_API_URL: http://core-nginx
+      BFF_URL: http://bff-gateway:3000 # 解析商店的 sid（AIC-015）
+      PARTNERS_URL: http://partners:4000 # demo 面板的物流開關（AIC-017）
+      SUPPORT_SERVICE_KEY: ${SUPPORT_SERVICE_KEY:-local-support-service-key} # 和 core-api 的 .env 同一把
+    env_file:
+      - path: ./services/support/api/.env
+        required: false
+    ports: ["127.0.0.1:${SUPPORT_API_PORT:-36080}:3000"]
+    # 暫存目錄只在記憶體：對話不落地，程序當掉留下的執行目錄也隨容器消失
+    tmpfs:
+      - /tmp:exec,mode=1777
+    # 不掛載 ~/.claude：個人的 CLAUDE.md、記憶、skills 不存在於執行環境，比靠參數關閉更可靠
+    volumes:
+      - ./services/support/api/src:/app/src
+      - ./services/support/api/test:/app/test
+      - ./services/support/api/migrations:/app/migrations
+      - ./services/support/api/sop:/app/sop
+      - ./services/support/api/support-eval-runs:/app/support-eval-runs
+      - ./services/support/api/assets:/app/assets
+    depends_on:
+      support-mysql: { condition: service_healthy }
+    # 只有 API 接到商店的網路（找得到 core-nginx）；資料庫和前端留在自己的網路
+    networks: [default, shop]
+
+  support-web:
+    build: ./services/support/web
+    environment:
+      API_URL: http://support:3000
+    ports: ["127.0.0.1:${SUPPORT_WEB_PORT:-36173}:5173"]
+    volumes:
+      - ./services/support/web/src:/app/src
+    depends_on: [support]
+
+volumes:
+  support-mysql-data:
+
+networks:
+  shop:
+    external: true
+    name: demo-claude_default

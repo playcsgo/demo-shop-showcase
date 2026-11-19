@@ -1,0 +1,286 @@
+{
+  "title": "電商 demo：交易正確性與韌性",
+  "description": "demo_claude（compose.datadog.yaml）。混沌測試時看：故障注入 → 斷路器/重試/DLQ → 對帳 → 不變式歸零。",
+  "layout_type": "ordered",
+  "template_variables": [
+    {
+      "name": "env",
+      "prefix": "env",
+      "default": "demo"
+    }
+  ],
+  "widgets": [
+    {
+      "definition": {
+        "type": "group",
+        "title": "① 帳對不對（業務不變式）",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "definition": {
+              "type": "query_value",
+              "title": "不變式不一致總數（應為 0）",
+              "precision": 0,
+              "autoscale": true,
+              "requests": [
+                {
+                  "q": "sum:demo.invariant.mismatches{*}",
+                  "aggregator": "last",
+                  "conditional_formats": [
+                    {
+                      "comparator": ">",
+                      "value": 0,
+                      "palette": "white_on_red"
+                    },
+                    {
+                      "comparator": "<=",
+                      "value": 0,
+                      "palette": "white_on_green"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "各不變式不一致筆數",
+              "show_legend": true,
+              "legend_layout": "horizontal",
+              "requests": [
+                {
+                  "q": "sum:demo.invariant.mismatches{*} by {check}",
+                  "display_type": "bars"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "處理中（混沌測試要等它歸零）",
+              "show_legend": true,
+              "legend_layout": "horizontal",
+              "requests": [
+                {
+                  "q": "sum:demo.in_flight{*} by {kind}",
+                  "display_type": "line"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "type": "group",
+        "title": "② 外部廠商與訊息管線",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "斷路器（1 = 斷開）",
+              "show_legend": true,
+              "legend_layout": "horizontal",
+              "requests": [
+                {
+                  "q": "max:demo.breaker.open{*} by {partner}",
+                  "display_type": "bars"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "廠商呼叫結果",
+              "show_legend": true,
+              "legend_layout": "horizontal",
+              "requests": [
+                {
+                  "q": "sum:demo.partner.call{*} by {outcome}.as_count()",
+                  "display_type": "bars"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "重複 webhook（被去重擋下）",
+              "show_legend": true,
+              "legend_layout": "horizontal",
+              "requests": [
+                {
+                  "q": "sum:demo.webhook.duplicate{*} by {provider}.as_count()",
+                  "display_type": "bars"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "佇列深度（含 DLQ）",
+              "show_legend": true,
+              "legend_layout": "horizontal",
+              "requests": [
+                {
+                  "q": "max:demo.queue.depth{*} by {queue}",
+                  "display_type": "line"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "type": "group",
+        "title": "③ 連線預算（§12.2）",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "MySQL 連線數 vs 上限",
+              "show_legend": true,
+              "legend_layout": "horizontal",
+              "requests": [
+                {
+                  "q": "max:demo.mysql.threads_connected{*}",
+                  "display_type": "line"
+                },
+                {
+                  "q": "max:mysql.net.connections{*}",
+                  "display_type": "line"
+                }
+              ],
+              "markers": [
+                {
+                  "value": "y = 150",
+                  "display_type": "error dashed",
+                  "label": "max_connections 150"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "連線被拒（1040，累計）",
+              "show_legend": true,
+              "legend_layout": "horizontal",
+              "requests": [
+                {
+                  "q": "max:demo.mysql.max_connection_errors{*}",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "PHP-FPM worker",
+              "show_legend": true,
+              "legend_layout": "horizontal",
+              "requests": [
+                {
+                  "q": "avg:php_fpm.processes.active{*}",
+                  "display_type": "line"
+                },
+                {
+                  "q": "avg:php_fpm.processes.idle{*}",
+                  "display_type": "line"
+                },
+                {
+                  "q": "avg:php_fpm.listen_queue.size{*}",
+                  "display_type": "line"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "type": "group",
+        "title": "④ 服務健康（APM）",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "請求數（依服務）",
+              "show_legend": true,
+              "legend_layout": "horizontal",
+              "requests": [
+                {
+                  "q": "sum:trace.laravel.request.hits{env:demo} by {service}.as_count()",
+                  "display_type": "bars"
+                },
+                {
+                  "q": "sum:trace.express.request.hits{env:demo} by {service}.as_count()",
+                  "display_type": "bars"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "錯誤數（依服務）",
+              "show_legend": true,
+              "legend_layout": "horizontal",
+              "requests": [
+                {
+                  "q": "sum:trace.laravel.request.errors{env:demo} by {service}.as_count()",
+                  "display_type": "bars"
+                },
+                {
+                  "q": "sum:trace.express.request.errors{env:demo} by {service}.as_count()",
+                  "display_type": "bars"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "平均延遲",
+              "show_legend": true,
+              "legend_layout": "horizontal",
+              "requests": [
+                {
+                  "q": "avg:trace.laravel.request{env:demo} by {service}",
+                  "display_type": "line"
+                },
+                {
+                  "q": "avg:trace.express.request{env:demo} by {service}",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "note",
+              "content": "**怎麼用**\n- 跑 `scripts/chaos.sh`，看 ② 斷路器打開又恢復、DLQ 是否累積\n- ① 最後必須回到 0\n- 點任一服務的尖峰 → View related traces → 同一個 trace 的 log",
+              "background_color": "white",
+              "font_size": "14",
+              "text_align": "left",
+              "show_tick": false,
+              "has_padding": true
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

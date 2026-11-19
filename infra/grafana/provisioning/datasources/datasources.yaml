@@ -1,0 +1,23 @@
+# Grafana 啟動時自動建立資料來源（M14）
+apiVersion: 1
+datasources:
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    isDefault: true
+    jsonData:
+      maxLines: 5000
+
+  # 業務資料（不變式、訂單狀態）：唯讀帳號，只限 sandbox
+  - name: MySQL
+    uid: mysql
+    type: mysql
+    url: mysql:3306
+    user: grafana_ro
+    jsonData:
+      database: demo
+      maxOpenConns: 2
+    secureJsonData:
+      password: grafana_ro

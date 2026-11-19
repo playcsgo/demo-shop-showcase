@@ -1,0 +1,12 @@
+# Next.js 版的前台＋BFF（services/web-next）：一個服務取代 bff-gateway（NestJS）和 storefront（Vite）
+# 用法：.env 寫 WEB_RUNTIME=next 再跑 scripts/up.sh；或直接
+#   docker compose -f compose.yaml -f compose.next.yaml up -d --build bff-gateway
+# 服務名稱仍是 bff-gateway（比照 core-go）：core、support 用的位址（http://bff-gateway:3000）不用改。
+# 對外的 port 用前台原本那一個：客服（support）放行的來源是 http://localhost:15173，換版不用改它的設定
+services:
+  bff-gateway:
+    build: ./services/web-next
+    ports: ["${STOREFRONT_PORT:-15173}:3000"]
+    volumes: !reset []          # NestJS 版把原始碼掛進容器（熱重載）；Next.js 版是 build 好的 image
+  storefront:
+    profiles: [vite]            # 不啟動：頁面由上面那個服務提供

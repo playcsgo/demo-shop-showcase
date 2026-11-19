@@ -1,0 +1,13 @@
+# SQS 佇列清單（唯一來源）：每條都會另外建一條 <名稱>-dlq，失敗 5 次進 DLQ
+#   docker compose：infra/localstack/init-aws.sh 讀這份
+#   K8s／AWS：deploy/terraform/modules/queues 讀這份
+# 指令依廠商分佇列（core 的 config/messaging.php 的 command_routes）
+core-commands
+payment-commands
+payment-reconcile-commands
+logistics-commands
+clinic-commands
+line-commands
+# 事件
+integration-events
+analytics-events

@@ -1,0 +1,50 @@
+# 經銷商叫貨：獨立服務，和商店不共用容器、網路、資料庫。不參與壓力測試
+#   啟動：scripts/distributor.sh up
+name: demo-distributor
+
+services:
+  distributor-mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: distributor
+      MYSQL_USER: distributor
+      MYSQL_PASSWORD: distributor
+    ports: ["${DISTRIBUTOR_DB_PORT:-23306}:3306"]
+    volumes:
+      - distributor-mysql-data:/var/lib/mysql
+      - ./services/distributor/api/docker/mysql-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot"]
+      interval: 5s
+      retries: 20
+
+  distributor-api:
+    image: demo-distributor-php:8.3
+    build: ./services/distributor/api/docker
+    environment:
+      SERVICE_NAME: distributor-api
+    volumes:
+      - ./services/distributor/api:/var/www/html
+    depends_on:
+      distributor-mysql: { condition: service_healthy }
+
+  distributor-nginx:
+    image: nginx:1.27-alpine
+    ports: ["${DISTRIBUTOR_API_PORT:-28080}:80"]
+    volumes:
+      - ./services/distributor/api:/var/www/html:ro
+      - ./services/distributor/api/docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on: [distributor-api]
+
+  distributor-web:
+    build: ./services/distributor/web
+    environment:
+      API_URL: http://distributor-nginx
+    ports: ["${DISTRIBUTOR_WEB_PORT:-25173}:5173"]
+    volumes:
+      - ./services/distributor/web/src:/app/src
+    depends_on: [distributor-nginx]
+
+volumes:
+  distributor-mysql-data:

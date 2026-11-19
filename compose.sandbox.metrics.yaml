@@ -1,0 +1,18 @@
+# sandbox 的指標也送進 K8s 裡的 Prometheus（scripts/k8s.sh metrics）：疊加在 compose.sandbox.datadog.yaml 上
+# 只有 kind 網路存在時才會加上（CI 沒有叢集，不用這個檔），scripts/sandbox.sh 判斷
+# Agent 多轉發一份 DogStatsD 給 statsd_exporter：程式照舊送給 Agent，和 K8s 同一條路
+services:
+  datadog-agent:
+    environment:
+      # IPv4（scripts/sandbox.sh 查好）：用名字會先解析成 IPv6，叢集的 NodePort 收不到
+      DD_STATSD_FORWARD_HOST: ${SANDBOX_METRICS_HOST:?}
+      DD_STATSD_FORWARD_PORT: "30125"
+    networks: [default, kind]
+
+  # metrics.localhost 的錯誤看板查這一套的 log：用容器名（demo-sbNN-loki-1）連（deploy/observability/loki-datasources.yaml）
+  loki:
+    networks: [default, kind]
+
+networks:
+  kind:
+    external: true

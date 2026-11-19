@@ -1,0 +1,33 @@
+# 在本機用 Grafana 查 CI（或其他電腦）跑出來的 sandbox log：scripts/sandbox.sh logs <run id 或資料夾>
+#   http://localhost:28000（Grafana port 28000）
+# 只有 Loki＋Grafana；匯入的是舊資料，所以 Loki 接受舊的時間戳記
+name: demo-viewer
+
+services:
+  loki:
+    image: grafana/loki:3.7.8
+    command: ["-config.file=/etc/loki/config.yaml", "-config.expand-env=true"]
+    environment:
+      LOKI_RETENTION: 720h
+      LOKI_REJECT_OLD_SAMPLES: "false"
+    ports: ["28100:3100"]   # 匯入用（Loki port 28100）
+    volumes:
+      - ./infra/loki/config.yaml:/etc/loki/config.yaml:ro
+      - loki-data:/loki
+
+  grafana:
+    image: grafana/grafana:12.4.12
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/debug-log.json
+    ports: ["28000:3000"]
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on: [loki]
+
+volumes:
+  loki-data:

@@ -1,0 +1,65 @@
+// Grafana Alloy（K8s 版）：透過 K8s API 讀 demo-shop 每個 Pod 的 log → 整理 → 推給 Loki
+// docker compose 版是 config.alloy（讀 docker.sock）；整理 log 的規則兩邊一樣
+// LOG_NAMESPACE：只收這個 namespace（不收 K8s 本身、Traefik、KEDA 的 log）
+
+discovery.kubernetes "pods" {
+  role = "pod"
+  namespaces {
+    names = [sys.env("LOG_NAMESPACE")]
+  }
+}
+
+// 標籤只放種類少的欄位：service（Pod 的 demo/service 標籤，和 compose 的服務名一樣）、container（php、nginx…）
+discovery.relabel "pods" {
+  targets = discovery.kubernetes.pods.targets
+
+  rule {
+    source_labels = ["__meta_kubernetes_pod_label_demo_service"]
+    target_label  = "service"
+  }
+  rule {
+    source_labels = ["__meta_kubernetes_pod_container_name"]
+    target_label  = "container"
+  }
+  // 一個 container 開了好幾個 port 時，discovery 會給好幾個目標 → 同一份 log 收好幾次；每個 container 只留一個
+  // 8000：core-api 跑 Octane 時 php 容器的 port（FPM 是 9000）；漏掉的話 core-api 的 log 整個收不到
+  rule {
+    source_labels = ["__meta_kubernetes_pod_container_port_number"]
+    regex         = "|80|3000|4000|8000|9000|3306|6379"
+    action        = "keep"
+  }
+  // 沒有 demo/service 標籤的（例如 k6 壓測）、LocalStack（很吵）不收
+  rule {
+    source_labels = ["service"]
+    regex         = "|k6|localstack"
+    action        = "drop"
+  }
+}
+
+loki.source.kubernetes "pods" {
+  targets    = discovery.relabel.pods.output
+  forward_to = [loki.process.json.receiver]
+}
+
+// 以下和 docker compose 版相同
+// PHP（FlatJsonFormatter）和 Node（pino）都輸出 {"level":"info",...}；level 設成標籤方便篩選
+loki.process "json" {
+  // 排程器自己每秒印的「Running ['artisan' …] DONE」不是 log，丟掉；排程指令寫的 JSON log 照收
+  stage.match {
+    selector = "{service=\"core-scheduler\"} !~ \"^\\\\{\""
+    action   = "drop"
+  }
+  stage.json {
+    expressions = { level = "level" }
+  }
+  stage.labels {
+    values = { level = "" }
+  }
+  forward_to = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

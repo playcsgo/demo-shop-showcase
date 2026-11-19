@@ -1,0 +1,259 @@
+# 本機開發環境：docker compose up -d
+name: demo-claude
+
+# Docker 自己存的 stdout：設大小上限、輪替，長時間跑不會塞滿硬碟（M14）
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "3" }
+
+# PHP 服務共用的 log 設定：JSON（和 Node 同一種格式）、等級由 .env 的 LOG_LEVEL 決定
+x-php-log: &php-log
+  LOG_CHANNEL: stderr
+  LOG_STDERR_FORMATTER: App\Logging\FlatJsonFormatter
+  LOG_LEVEL: ${LOG_LEVEL:-warn}
+
+# core 的所有程序都經過 ProxySQL 連 MySQL（連線池）；M10 連線數實驗的 A、B 組會改成直連（CORE_DB_HOST=mysql）
+x-core-db: &core-db
+  DB_HOST: ${CORE_DB_HOST:-proxysql}
+  DB_PORT: ${CORE_DB_PORT:-6033}
+
+services:
+  mysql:
+    logging: *logging
+    image: mysql:8.4
+    command:
+      - --max-connections=150          # 刻意設小，讓連線數問題容易重現（§12.2）
+      - --slow-query-log=ON
+      - --long-query-time=0.2
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: demo
+      MYSQL_USER: demo
+      MYSQL_PASSWORD: demo
+    ports: ["13306:3306"]
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./infra/mysql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot"]
+      interval: 5s
+      retries: 20
+
+  # 連線池（本機替代 RDS Proxy）：core → ProxySQL → MySQL
+  proxysql:
+    logging: *logging
+    image: proxysql/proxysql:3.0.11
+    volumes:
+      - ./infra/proxysql/proxysql.cnf:/etc/proxysql.cnf:ro
+    ports: ["16033:6033"]
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/6033'"]
+      interval: 3s
+      retries: 20
+    depends_on:
+      mysql: { condition: service_healthy }
+
+  redis:
+    logging: *logging
+    image: redis:7-alpine
+    ports: ["16379:6379"]
+
+  localstack:
+    logging: *logging
+    image: localstack/localstack:4.14
+    environment:
+      SERVICES: sqs,s3
+      AWS_DEFAULT_REGION: ap-northeast-1   # 和參考的電商一樣在東京；init 腳本的 awslocal 也用這個區域
+    ports: ["14566:4566"]
+    volumes:
+      - ./infra/localstack/init-aws.sh:/etc/localstack/init/ready.d/init-aws.sh:ro
+      - ./infra/localstack/queues.txt:/etc/localstack/init/queues.txt:ro
+    healthcheck:   # 佇列和 bucket 建好才算 ready（core 等它）；init 腳本最後才建商品圖片的 bucket
+      test: ["CMD-SHELL", "awslocal s3api head-bucket --bucket demo-product-images >/dev/null 2>&1"]
+      interval: 5s
+      retries: 30
+
+  core-api:
+    logging: *logging
+    image: demo-core-php:8.3
+    build: ./services/core-api/docker
+    environment:
+      <<: [*php-log, *core-db]
+      SERVICE_NAME: core-api
+      FPM_MAX_CHILDREN: ${FPM_MAX_CHILDREN:-20}
+      DEMO_DB_LATENCY_MS: ${DEMO_DB_LATENCY_MS:-0}   # 連線數實驗用
+    volumes:
+      - ./services/core-api:/var/www/html
+    depends_on:
+      proxysql: { condition: service_healthy }
+      redis: { condition: service_started }
+      localstack: { condition: service_healthy }   # 商品圖片存 S3
+
+  # outbox → SQS（同一份程式碼、不同程序）
+  core-relay:
+    logging: *logging
+    environment:
+      <<: [*php-log, *core-db]
+      SERVICE_NAME: core-relay
+    image: demo-core-php:8.3
+    command: ["php", "artisan", "outbox:relay"]
+    volumes:
+      - ./services/core-api:/var/www/html
+    depends_on:
+      proxysql: { condition: service_healthy }
+      localstack: { condition: service_healthy }
+    restart: unless-stopped
+
+  # 消費 integration-events（inbox）
+  core-worker:
+    logging: *logging
+    environment:
+      <<: [*php-log, *core-db]
+      SERVICE_NAME: core-worker
+    image: demo-core-php:8.3
+    command: ["php", "artisan", "events:consume"]
+    volumes:
+      - ./services/core-api:/var/www/html
+    depends_on:
+      proxysql: { condition: service_healthy }
+      localstack: { condition: service_healthy }
+    restart: unless-stopped
+
+  # 排程：訂閱續期（每秒）、付款對帳（每 10 秒）
+  core-scheduler:
+    logging: *logging
+    environment:
+      <<: [*php-log, *core-db]
+      SERVICE_NAME: core-scheduler
+    image: demo-core-php:8.3
+    command: ["php", "artisan", "schedule:work"]
+    volumes:
+      - ./services/core-api:/var/www/html
+    depends_on:
+      proxysql: { condition: service_healthy }
+    restart: unless-stopped
+
+  core-nginx:
+    logging: *logging
+    image: nginx:1.27-alpine
+    ports: ["18080:80"]
+    volumes:
+      - ./services/core-api:/var/www/html:ro
+      - ./services/core-api/docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on: [core-api]
+
+  # BFF（NestJS）：前台唯一的入口；session 在 Redis、JWT 只在伺服器端
+  bff-gateway:
+    logging: *logging
+    build: ./services/bff-gateway
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-warn}
+      CORE_URL: http://core-nginx
+      REDIS_URL: redis://redis:6379/3
+      BFF_SERVICE_KEY: ${BFF_SERVICE_KEY:-local-bff-service-key}
+      SUPPORT_SERVICE_KEY: ${SUPPORT_SERVICE_KEY:-local-support-service-key}   # AI 客服解析 sid 用（AIC-015）
+      COOKIE_SECURE: "0"          # 本機 http；正式環境（HTTPS）設 1
+      AWS_DEFAULT_REGION: ap-northeast-1
+      AWS_ENDPOINT: http://localstack:4566
+      SQS_PREFIX: http://localstack:4566/000000000000
+    volumes:
+      - ./services/bff-gateway/src:/app/src
+    depends_on:
+      redis: { condition: service_started }
+      core-nginx: { condition: service_started }
+
+  # 前台（Vite＋React）：http://localhost:15173；/api 由 Vite 轉給 BFF（同網域 → cookie 自動帶）
+  storefront:
+    logging: *logging
+    build: ./services/storefront
+    environment:
+      BFF_URL: http://bff-gateway:3000
+      SUPPORT_URL: http://support:3000   # 客服對話框（AIC-018）；support 沒開也不影響商店
+    ports: ["15173:5173"]
+    volumes:
+      - ./services/storefront/src:/app/src
+    depends_on: [bff-gateway]
+
+  # 外部串接層（NestJS）：消費 core-commands、呼叫廠商、接收 webhook
+  hub:
+    logging: *logging
+    build: ./services/hub
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-warn}
+      AWS_DEFAULT_REGION: ap-northeast-1
+      AWS_ENDPOINT: http://localstack:4566
+      SQS_PREFIX: http://localstack:4566/000000000000
+      REDIS_URL: redis://redis:6379/2
+      PARTNERS_URL: http://partners:4000
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-local-internal-key}   # core 呼叫 hub 內部 API 用（醫院保留時段）
+      MOCKPAY_WEBHOOK_SECRET: ${MOCKPAY_WEBHOOK_SECRET:-mockpay-secret}
+      MOCKLOGI_WEBHOOK_SECRET: ${MOCKLOGI_WEBHOOK_SECRET:-mocklogi-secret}
+    ports: ["13000:3000"]
+    volumes:
+      - ./services/hub/src:/app/src
+    depends_on:
+      localstack: { condition: service_healthy }
+      redis: { condition: service_started }
+
+  # 模擬外部廠商＋故障注入控制台：http://localhost:14000
+  partners:
+    logging: *logging
+    build: ./services/partners
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-warn}
+      HUB_WEBHOOK_BASE: http://hub:3000/webhooks
+      MOCKPAY_WEBHOOK_SECRET: ${MOCKPAY_WEBHOOK_SECRET:-mockpay-secret}
+      MOCKLOGI_WEBHOOK_SECRET: ${MOCKLOGI_WEBHOOK_SECRET:-mocklogi-secret}
+    ports: ["14000:4000"]
+    volumes:
+      - ./services/partners/src:/app/src
+
+  # ───────── 本機 debug log（M14）：只有 .env 的 DEBUG_LOG=TRUE 時才會啟動（scripts/up.sh）─────────
+  # 各容器 stdout → Alloy（收集）→ Loki（儲存，保存 LOKI_RETENTION）→ Grafana（查詢：http://localhost:13300）
+  loki:
+    image: grafana/loki:3.7.8
+    profiles: [logs]
+    logging: *logging
+    command: ["-config.file=/etc/loki/config.yaml", "-config.expand-env=true"]
+    environment:
+      LOKI_RETENTION: ${LOKI_RETENTION:-72h}
+    ports: ["13100:3100"]
+    volumes:
+      - ./infra/loki/config.yaml:/etc/loki/config.yaml:ro
+      - loki-data:/loki
+
+  alloy:
+    image: grafana/alloy:v1.20.1
+    profiles: [logs]
+    logging: *logging
+    environment:
+      COMPOSE_PROJECT: demo-claude   # 只收這個 project 的容器
+    command: ["run", "/etc/alloy/config.alloy", "--storage.path=/var/lib/alloy/data", "--server.http.listen-addr=0.0.0.0:12345"]
+    volumes:
+      - ./infra/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro   # 讀容器 log（唯讀）
+      - alloy-data:/var/lib/alloy/data                 # 記住每個容器讀到哪裡：重建後不會從頭重讀（logs-reset 才清得乾淨）
+    depends_on: [loki]
+
+  grafana:
+    image: grafana/grafana:12.4.12
+    profiles: [logs]
+    logging: *logging
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"        # 本機工具：不用登入（不要用在共用環境）
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/debug-log.json
+    ports: ["13300:3000"]
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on: [loki]
+
+volumes:
+  mysql-data:
+  loki-data:
+  alloy-data:
+  grafana-data:

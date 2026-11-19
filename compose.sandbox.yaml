@@ -1,0 +1,251 @@
+# sandbox／CI 的測試套數：用 scripts/sandbox.sh 啟動，不要直接 docker compose up
+#   scripts/sandbox.sh up 1   → project demo-sb01，port 21001、22001…
+#   scripts/sandbox.sh up 2   → project demo-sb02，port 21002、22002…
+#
+# 和日常開發那套（compose.yaml）的差別：
+#   - 正式模式的 image：程式碼 build 進去、不掛主機資料夾、啟動時做 config／route cache
+#   - 每套各自一份 MySQL、Redis、LocalStack（SQS）、log 系統（Alloy＋Loki＋Grafana）
+#   - 不開前台（storefront）、不送 Datadog
+#   - port 規則：第 2～3 位是服務、最後兩位是第幾套（NN）
+#       core 210NN、BFF 220NN、hub 230NN、partners 240NN、MySQL 260NN、Redis 270NN、Grafana 280NN
+#
+# 下面的 ${...} 都由 scripts/sandbox.sh 算好再傳進來；image 用 git commit 標記，所有套數共用同一份
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "3" }
+
+# core 的四個程序（API、relay、worker、scheduler）共用：同一個 image、同一份設定
+x-core: &core
+  image: demo-sandbox/core-api:${SANDBOX_TAG:-latest}
+  logging: *logging
+  env_file: ./services/core-api/.env.example   # 已 commit 的預設值（CI 也有）；正式模式的差異寫在下面
+  environment: &core-env
+    APP_ENV: production
+    APP_DEBUG: "false"
+    APP_KEY: ${SANDBOX_APP_KEY:-}               # scripts/sandbox.sh 每次啟動產生
+    APP_URL: http://localhost:${CORE_PORT:-21001}
+    LOG_CHANNEL: stderr
+    LOG_STDERR_FORMATTER: App\Logging\FlatJsonFormatter
+    LOG_LEVEL: ${LOG_LEVEL:-debug}
+    TIME_SCALE: ${TIME_SCALE:-1}               # 時間壓縮（所有設定出來的時間，config/shop.php）；換倍數要重建 core
+    # FPM 經過連線池（和正式環境的 RDS Proxy 對應）；Go 版程序內就有連線池，直連 MySQL（scripts/sandbox.sh 依 image 決定）
+    DB_HOST: ${SANDBOX_DB_HOST:-proxysql}
+    DB_PORT: ${SANDBOX_DB_PORT:-6033}
+  depends_on:
+    core-init: { condition: service_completed_successfully }
+  restart: unless-stopped
+
+services:
+  mysql:
+    logging: *logging
+    image: mysql:8.4
+    command: ["--max-connections=150"]
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: demo
+      MYSQL_USER: demo
+      MYSQL_PASSWORD: demo
+    ports: ["${MYSQL_PORT:-26001}:3306"]
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./infra/mysql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot"]
+      interval: 3s
+      retries: 40
+
+  # 連線池（本機替代 RDS Proxy）：core → ProxySQL → MySQL；設定和日常那套同一份
+  # profile pool：只有 FPM 開（scripts/sandbox.sh 設 COMPOSE_PROFILES），Go 版直連 MySQL、不開這個
+  proxysql:
+    logging: *logging
+    profiles: [pool]
+    image: proxysql/proxysql:3.0.11
+    volumes:
+      - ./infra/proxysql/proxysql.cnf:/etc/proxysql.cnf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/6033'"]
+      interval: 3s
+      retries: 20
+    depends_on:
+      mysql: { condition: service_healthy }
+
+  redis:
+    logging: *logging
+    image: redis:7-alpine
+    ports: ["${REDIS_PORT:-27001}:6379"]
+
+  localstack:
+    logging: *logging
+    image: localstack/localstack:4.14
+    environment:
+      SERVICES: sqs,s3
+      AWS_DEFAULT_REGION: ap-northeast-1
+    volumes:
+      - ./infra/localstack/init-aws.sh:/etc/localstack/init/ready.d/init-aws.sh:ro
+      - ./infra/localstack/queues.txt:/etc/localstack/init/queues.txt:ro
+    healthcheck:   # init 腳本最後才建商品圖片的 bucket：它在就代表佇列和 bucket 都建好了
+      test: ["CMD-SHELL", "awslocal s3api head-bucket --bucket demo-product-images >/dev/null 2>&1"]
+      interval: 3s
+      retries: 40
+
+  # 一次性：產生這一套的 JWT 金鑰、建立資料表、灌測試資料（含商品圖片，上傳到 S3），做完就結束；其他 core 程序等它成功才啟動
+  core-init:
+    image: demo-sandbox/core-api:${SANDBOX_TAG:-latest}
+    logging: *logging
+    env_file: ./services/core-api/.env.example
+    environment: *core-env
+    # 第一次（還沒有 migrations 表）才灌測試資料；同一套再 up 一次只跑新的 migration
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        php artisan auth:keys && chown -R www-data:www-data storage/app/keys
+        if php artisan migrate:status >/dev/null 2>&1; then php artisan migrate --force; else php artisan migrate --force --seed; fi
+        php artisan db:seed --class='Database\Seeders\ProductImageSeeder' --force   # 商品圖片：已經有就跳過（LocalStack 重建後會補傳）
+    volumes:
+      - core-keys:/var/www/html/storage/app/keys
+    depends_on:
+      mysql: { condition: service_healthy }
+      proxysql: { condition: service_healthy, required: false }   # Go 版沒開 ProxySQL
+      redis: { condition: service_started }
+      localstack: { condition: service_healthy }   # 種子資料的商品圖片要上傳
+
+  core-api:
+    <<: *core
+    environment:
+      <<: *core-env
+      SERVICE_NAME: core-api
+      FPM_MAX_CHILDREN: 20   # docker/fpm-pool.conf 讀這個
+    volumes:
+      - core-keys:/var/www/html/storage/app/keys:ro   # 每套自己的金鑰（core-init 產生）
+
+  core-relay:
+    <<: *core
+    environment:
+      <<: *core-env
+      SERVICE_NAME: core-relay
+    command: ["php", "artisan", "outbox:relay"]
+    depends_on:
+      core-init: { condition: service_completed_successfully }
+      localstack: { condition: service_healthy }
+
+  core-worker:
+    <<: *core
+    environment:
+      <<: *core-env
+      SERVICE_NAME: core-worker
+    command: ["php", "artisan", "events:consume"]
+    depends_on:
+      core-init: { condition: service_completed_successfully }
+      localstack: { condition: service_healthy }
+
+  core-scheduler:
+    <<: *core
+    environment:
+      <<: *core-env
+      SERVICE_NAME: core-scheduler
+    command: ["php", "artisan", "schedule:work"]
+
+  core-nginx:
+    logging: *logging
+    image: demo-sandbox/core-nginx:${SANDBOX_TAG:-latest}
+    ports: ["${CORE_PORT:-21001}:80"]
+    depends_on: [core-api]
+
+  bff-gateway:
+    logging: *logging
+    image: demo-sandbox/bff-gateway:${SANDBOX_TAG:-latest}
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-debug}
+      CORE_URL: http://core-nginx
+      REDIS_URL: redis://redis:6379/3
+      BFF_SERVICE_KEY: local-bff-service-key
+      COOKIE_SECURE: "0"
+      AWS_DEFAULT_REGION: ap-northeast-1
+      AWS_ENDPOINT: http://localstack:4566
+      SQS_PREFIX: http://localstack:4566/000000000000
+    ports: ["${BFF_PORT:-22001}:3000"]
+    depends_on:
+      redis: { condition: service_started }
+      core-nginx: { condition: service_started }
+    restart: unless-stopped
+
+  hub:
+    logging: *logging
+    image: demo-sandbox/hub:${SANDBOX_TAG:-latest}
+    environment:
+      TIME_SCALE: ${TIME_SCALE:-1}   # 呼叫廠商的逾時、重試間隔、斷路器冷卻跟著縮
+      LOG_LEVEL: ${LOG_LEVEL:-debug}
+      AWS_DEFAULT_REGION: ap-northeast-1
+      AWS_ENDPOINT: http://localstack:4566
+      SQS_PREFIX: http://localstack:4566/000000000000
+      REDIS_URL: redis://redis:6379/2
+      PARTNERS_URL: http://partners:4000
+      INTERNAL_API_KEY: local-internal-key
+      MOCKPAY_WEBHOOK_SECRET: mockpay-secret
+      MOCKLOGI_WEBHOOK_SECRET: mocklogi-secret
+    ports: ["${HUB_PORT:-23001}:3000"]
+    depends_on:
+      localstack: { condition: service_healthy }
+      redis: { condition: service_started }
+    restart: unless-stopped
+
+  partners:
+    logging: *logging
+    image: demo-sandbox/partners:${SANDBOX_TAG:-latest}
+    environment:
+      TIME_SCALE: ${TIME_SCALE:-1}   # 預設值；每個情境開始時 /admin/run 會再設一次
+      LOG_LEVEL: ${LOG_LEVEL:-debug}
+      HUB_WEBHOOK_BASE: http://hub:3000/webhooks
+      MOCKPAY_WEBHOOK_SECRET: mockpay-secret
+      MOCKLOGI_WEBHOOK_SECRET: mocklogi-secret
+    ports: ["${PARTNERS_PORT:-24001}:4000"]
+    restart: unless-stopped
+
+  # ───────── 每套自己的 log 系統：只收自己這套的容器，查時間線不會混到別套 ─────────
+  loki:
+    image: grafana/loki:3.7.8
+    logging: *logging
+    command: ["-config.file=/etc/loki/config.yaml", "-config.expand-env=true"]
+    environment:
+      LOKI_RETENTION: 24h   # 測完就 down -v 整個刪掉，不需要保存很久
+    volumes:
+      - ./infra/loki/config.yaml:/etc/loki/config.yaml:ro
+      - loki-data:/loki
+
+  alloy:
+    image: grafana/alloy:v1.20.1
+    logging: *logging
+    environment:
+      COMPOSE_PROJECT: ${SANDBOX_PROJECT:-demo-sb01}
+    command: ["run", "/etc/alloy/config.alloy", "--storage.path=/var/lib/alloy/data", "--server.http.listen-addr=0.0.0.0:12345"]
+    volumes:
+      - ./infra/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - alloy-data:/var/lib/alloy/data
+    depends_on: [loki]
+
+  grafana:
+    image: grafana/grafana:12.4.12
+    logging: *logging
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/debug-log.json
+    ports: ["${GRAFANA_PORT:-28001}:3000"]
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on: [loki]
+
+volumes:
+  mysql-data:
+  core-keys:
+  loki-data:
+  alloy-data:
+  grafana-data:

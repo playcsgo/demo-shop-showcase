@@ -1,0 +1,37 @@
+# ProxySQL：core（PHP-FPM）和 MySQL 之間的連線池（本機替代 AWS 的 RDS Proxy）
+#   PHP-FPM 每個請求都重新開連線、請求結束就關；Pod 一多，連到 MySQL 的連線數就會超過上限（M10 的 1040 錯誤）
+#   ProxySQL 和 MySQL 之間維持一組常駐連線（最多 max_connections 條），PHP 連的是 ProxySQL：
+#   請求之間的空檔，後端連線收回來給別人用（multiplexing）；交易進行中才綁定同一條
+# docker compose、sandbox、K8s 共用這份（K8s 由 Terraform 讀這個檔案帶進 chart）
+# 不掛 datadir：每次啟動都從這個檔案讀設定（有 proxysql.db 時會忽略設定檔）
+datadir="/var/lib/proxysql"
+
+admin_variables=
+{
+  admin_credentials="admin:admin;radmin:radmin"   # radmin：從別的容器連管理介面（admin 只能從本機）
+  mysql_ifaces="0.0.0.0:6032"
+}
+
+mysql_variables=
+{
+  threads=4
+  max_connections=4000              # 前端（PHP 連進來）的上限：遠大於後端
+  interfaces="0.0.0.0:6033"
+  server_version="8.4.0"
+  monitor_username="demo"           # 檢查後端健康用的帳號（只做 ping、讀狀態）
+  monitor_password="demo"
+  connect_timeout_server=3000
+  default_query_timeout=60000       # 單一查詢最多 60 秒
+}
+
+# 後端：一台 MySQL，ProxySQL 最多開 100 條連線過去（每個 ProxySQL 各自算；K8s 開 2 個 → 最多 200，MySQL 上限 400）
+mysql_servers=
+(
+  { address="mysql", port=3306, hostgroup=0, max_connections=100 }
+)
+
+# MySQL 8.4 預設的 caching_sha2_password：這裡放明碼，ProxySQL 自己處理前後端的驗證
+mysql_users=
+(
+  { username="demo", password="demo", default_hostgroup=0 }
+)

@@ -1,0 +1,130 @@
+# Datadog 觀測層（疊加在 compose.yaml 上，沒有 key 時 demo 照樣能跑）
+#   開關：根目錄 .env 的 DATA_DOG=TRUE，再跑 scripts/up.sh（M14）
+# 需要 .env：DD_API_KEY、DD_SITE（.env 不進 git）
+# log 格式（JSON、correlation_id）由 compose.yaml 統一設定，這裡只加 Datadog 需要的部分
+#
+# 三種資料：
+#   APM trace：PHP（ddtrace 擴充）、Node（dd-trace）→ Agent :8126
+#   Log：Agent 讀所有容器的 stdout/stderr；Laravel 輸出 JSON 並帶 dd.trace_id → log 和 trace 可互相跳轉
+#   指標：MySQL／Redis／PHP-FPM 由 Agent 的整合直接抓；業務指標（不變式、DLQ、斷路器）走 DogStatsD :8125
+
+x-php-dd: &php-dd
+  DD_AGENT_HOST: datadog-agent
+  DD_ENV: demo
+  DD_VERSION: local
+  DD_TRACE_ENABLED: "true"
+  DD_LOGS_INJECTION: "true"                 # Monolog 的每筆 log 帶上 trace_id（FlatJsonFormatter 會放在最外層）
+  DD_TRACE_CLI_ENABLED: "true"              # artisan 常駐程序（relay、worker）也要 trace
+  DD_TRACE_GENERATE_ROOT_SPAN: "false"      # 常駐 CLI 不要一整條永不結束的 span；AppServiceProvider 用 trace_method 切成一段一段
+
+x-node-dd: &node-dd
+  NODE_OPTIONS: --import dd-trace/initialize.mjs   # ESM 必須用 --import，dd-trace 才能在 Nest 載入前掛好 hook
+  DD_AGENT_HOST: datadog-agent
+  DD_ENV: demo
+  DD_VERSION: local
+  DD_LOGS_INJECTION: "true"
+  DD_RUNTIME_METRICS_ENABLED: "true"        # event loop 延遲、heap
+
+services:
+  datadog-agent:
+    image: datadog/agent:7.84.2
+    environment:
+      DD_API_KEY: ${DD_API_KEY:?請在 .env 設定 DD_API_KEY}
+      DD_SITE: ${DD_SITE:-ap1.datadoghq.com}
+      DD_HOSTNAME: demo-claude-local
+      DD_ENV: demo
+      DD_APM_ENABLED: "true"
+      DD_APM_NON_LOCAL_TRAFFIC: "true"      # 接受其他容器送來的 trace
+      DD_DOGSTATSD_NON_LOCAL_TRAFFIC: "true"
+      DD_LOGS_ENABLED: "true"
+      # 只看這個 demo 的容器：這台 Docker 上可能還有別的專案，它們的 log 和指標不該送出去
+      DD_CONTAINER_EXCLUDE: "name:.*"
+      DD_CONTAINER_INCLUDE: "name:^demo-claude-"
+      DD_CONTAINER_EXCLUDE_LOGS: "name:^demo-claude-localstack-.* name:^demo-claude-datadog-agent-.*"   # LocalStack 很吵
+      DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL: "false"   # 只收有 com.datadoghq.ad.logs label 的容器
+      DD_PROCESS_AGENT_ENABLED: "false"
+      DD_APM_IGNORE_RESOURCES: "GET /fpm-status,GET /fpm-ping,GET /health"   # 健康檢查不算流量
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /proc/:/host/proc/:ro
+      - /sys/fs/cgroup/:/host/sys/fs/cgroup:ro
+
+  # ── Agent 整合：用 label 告訴 Agent「這個容器是 MySQL，請用這組帳密抓指標」（Autodiscovery）
+  mysql:
+    labels:
+      com.datadoghq.tags.service: mysql
+      com.datadoghq.ad.checks: >-
+        {"mysql": {"instances": [{"host": "%%host%%", "port": 3306, "username": "root", "password": "root",
+          "options": {"extra_status_metrics": true}}]}}
+
+  redis:
+    labels:
+      com.datadoghq.tags.service: redis
+      com.datadoghq.ad.checks: '{"redisdb": {"instances": [{"host": "%%host%%", "port": 6379}]}}'
+
+  # ── PHP
+  core-api:
+    environment:
+      <<: *php-dd
+      DD_SERVICE: core-api
+      # API（FPM）每個請求要有自己的 root span：否則 log 的 dd.trace_id 是 0，log 和 trace 連不起來
+      # （x-php-dd 的 false 是給常駐 CLI 程序用的；M16 在 sandbox 驗證時才發現）
+      DD_TRACE_GENERATE_ROOT_SPAN: "true"
+    labels:
+      com.datadoghq.tags.service: core-api
+      com.datadoghq.ad.logs: '[{"source": "php", "service": "core-api"}]'
+      # FPM 狀態頁：active／idle worker、listen queue → 連線預算的另一半（§12.2）
+      com.datadoghq.ad.checks: >-
+        {"php_fpm": {"instances": [{"status_url": "http://%%host%%:9000/fpm-status",
+          "ping_url": "http://%%host%%:9000/fpm-ping", "ping_reply": "pong", "use_fastcgi": true}]}}
+
+  core-relay:
+    environment:
+      <<: *php-dd
+      DD_SERVICE: core-relay
+    labels:
+      com.datadoghq.tags.service: core-relay
+      com.datadoghq.ad.logs: '[{"source": "php", "service": "core-relay"}]'
+
+  core-worker:
+    environment:
+      <<: *php-dd
+      DD_SERVICE: core-worker
+    labels:
+      com.datadoghq.tags.service: core-worker
+      com.datadoghq.ad.logs: '[{"source": "php", "service": "core-worker"}]'
+
+  core-scheduler:
+    environment:
+      <<: *php-dd
+      DD_SERVICE: core-scheduler
+      DD_TRACE_GENERATE_ROOT_SPAN: "true"   # schedule:work 每次會開子程序跑指令，一個指令一條 trace
+    labels:
+      com.datadoghq.tags.service: core-scheduler
+      com.datadoghq.ad.logs: '[{"source": "php", "service": "core-scheduler"}]'
+
+  core-nginx:
+    labels:
+      com.datadoghq.tags.service: core-nginx
+      com.datadoghq.ad.logs: '[{"source": "nginx", "service": "core-nginx"}]'
+
+  # ── Node
+  bff-gateway:
+    environment:
+      <<: *node-dd
+      DD_SERVICE: bff-gateway
+    labels:
+      com.datadoghq.tags.service: bff-gateway
+      com.datadoghq.ad.logs: '[{"source": "nodejs", "service": "bff-gateway"}]'
+
+  hub:
+    environment:
+      <<: *node-dd
+      DD_SERVICE: hub
+    labels:
+      com.datadoghq.tags.service: hub
+      com.datadoghq.ad.logs: '[{"source": "nodejs", "service": "hub"}]'
+
+  partners:
+    labels:
+      com.datadoghq.tags.service: partners
