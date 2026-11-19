@@ -62,8 +62,11 @@ jobs:
           extra=""
           [[ "${{ steps.flags.outputs.debug }}" == "true" ]] && extra="--export-all-logs"
           [[ "${{ steps.flags.outputs.datadog }}" == "true" && -n "$DD_API_KEY" ]] && extra="$extra --datadog all"
-          # 時間壓縮 ×5（所有設定出來的時間同比例縮；真實處理時間的基準沒量過時用 100 ms）
-          scripts/sandbox.sh run --parallel 2 --time-scale 5 $extra
+          # 時間壓縮 ×3（所有設定出來的時間同比例縮；真實處理時間的基準沒量過時用 100 ms）
+          # Time compression ×3 (every configured time shrinks by the same factor).
+          # GitHub runner 量到的 p99 約 161 ms；×5 時最短逾時 400 ms，低於 p99×3＝483 ms，情境會被判「設定不合理」
+          # On GitHub runners p99 is about 161 ms; at ×5 the shortest timeout is 400 ms, under p99×3 = 483 ms, so every scenario is rejected.
+          scripts/sandbox.sh run --parallel 2 --time-scale 3 $extra
 
       # 失敗時看環境本身有沒有問題（log 有沒有收進 Loki、各容器狀態）；之後才清掉
       # [ci-debug] 也跑：log 是空的時候，情境不一定會失敗

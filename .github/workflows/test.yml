@@ -1,0 +1,201 @@
+# 每個 PR 跑各服務自己的測試、型別檢查和 lint；只跑這次有改到的服務
+# Every PR runs each service's own tests, type checks and lint, only for the services it touches.
+#
+# 整套環境的情境測試在 sandbox.yml，這裡只測單一服務，幾分鐘內跑完
+# Full-stack scenario tests live in sandbox.yml; this one tests services on their own and finishes in minutes.
+name: test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # 找出這次改到哪些服務；改到這個 workflow 本身就全部都跑
+  # Work out which services changed; a change to this workflow runs them all.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      node: ${{ steps.pick.outputs.node }}
+      php: ${{ steps.pick.outputs.php }}
+      go: ${{ steps.pick.outputs.go }}
+      support_api: ${{ steps.pick.outputs.support_api }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: pick
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          # name：job 名稱；dir：服務資料夾；run：要跑的檢查
+          # name: job name; dir: service folder; run: the checks to run
+          NODE: |
+            [
+              {"name": "bff-gateway",     "dir": "services/bff-gateway",     "run": "npm run -s lint && npx tsc --noEmit && npm test"},
+              {"name": "hub",             "dir": "services/hub",             "run": "npm run -s lint && npx tsc --noEmit && npm test"},
+              {"name": "partners",        "dir": "services/partners",        "run": "npm run -s typecheck && npm test"},
+              {"name": "web-next",        "dir": "services/web-next",        "run": "npm run -s typecheck && npm test"},
+              {"name": "storefront",      "dir": "services/storefront",      "run": "npm run -s lint && npm run -s build"},
+              {"name": "support-web",     "dir": "services/support/web",     "run": "npm run -s lint && npm run -s build"},
+              {"name": "distributor-web", "dir": "services/distributor/web", "run": "npm run -s lint && npm run -s build"}
+            ]
+          PHP: |
+            [
+              {"name": "core-api",        "dir": "services/core-api",        "db": "demo_test",
+               "run": "php artisan auth:keys && ./vendor/bin/pest"},
+              {"name": "distributor-api", "dir": "services/distributor/api", "db": "distributor_test",
+               "run": "./vendor/bin/pest && ./vendor/bin/phpstan analyse --memory-limit=1G --no-progress"}
+            ]
+          GO: |
+            [{"name": "core-go", "dir": "services/core-go"}]
+          SUPPORT_API: |
+            [{"name": "support-api", "dir": "services/support/api"}]
+        run: |
+          # main 的第一次 push（沒有上一個 commit）或改到 workflow：全部跑
+          # The first push to main (no previous commit) or a workflow change: run everything.
+          all=false
+          if [[ -z "$BASE" || "$BASE" =~ ^0+$ ]]; then
+            all=true
+          else
+            changed=$(git diff --name-only "$BASE"..."$HEAD")
+            grep -q '^\.github/workflows/test\.yml$' <<<"$changed" && all=true
+          fi
+          printf '%s\n' "${changed:-}" > changed.txt
+
+          for key in NODE PHP GO SUPPORT_API; do
+            # 只留有改到的服務；再拿掉 repo 裡沒有的資料夾（例如還沒合併進來的 PR）
+            # Keep the services with changes, then drop folders missing from the repo (e.g. a PR not merged yet).
+            list=$(jq -c --argjson all "$all" --rawfile changed changed.txt '
+              ($changed | split("\n")) as $files
+              | [ .[] | . as $s | select($all or ($files | any(startswith($s.dir + "/")))) ]
+            ' <<<"${!key}" | jq -c '.[]' | while read -r s; do
+              [[ -d "$(jq -r .dir <<<"$s")" ]] && echo "$s"
+            done | jq -c --slurp '.')
+            echo "${key,,}=$list" >> "$GITHUB_OUTPUT"
+            echo "${key,,}: $(jq -r 'map(.name) | join(", ")' <<<"$list")"
+          done
+
+  node:
+    needs: changes
+    if: needs.changes.outputs.node != '[]'
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.changes.outputs.node) }}
+    defaults:
+      run:
+        working-directory: ${{ matrix.dir }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ${{ matrix.dir }}/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: ${{ matrix.run }}
+
+  # AI 客服的 API 測試要真的 MySQL（假的 Claude CLI、假的商店，不花額度）
+  # The AI support API tests need a real MySQL (a fake Claude CLI and a fake shop, so no model usage).
+  support-api:
+    needs: changes
+    if: needs.changes.outputs.support_api != '[]'
+    name: support-api
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -proot" --health-interval=5s --health-timeout=5s --health-retries=20
+    env:
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: root
+    defaults:
+      run:
+        working-directory: services/support/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: services/support/api/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npx vitest run
+      - run: npx tsc --noEmit
+      - run: npm run -s lint
+
+  php:
+    needs: changes
+    if: needs.changes.outputs.php != '[]'
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.changes.outputs.php) }}
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: ${{ matrix.db }}
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -proot" --health-interval=5s --health-timeout=5s --health-retries=20
+    env:
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_USERNAME: root
+      DB_PASSWORD: root
+    defaults:
+      run:
+        working-directory: ${{ matrix.dir }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_mysql, bcmath, intl, zip, pcntl
+          coverage: none
+      - uses: actions/cache@v4
+        with:
+          path: ${{ matrix.dir }}/vendor
+          key: composer-${{ matrix.name }}-${{ hashFiles(format('{0}/composer.lock', matrix.dir)) }}
+      - run: composer install --no-interaction --no-progress --prefer-dist
+      - run: cp .env.example .env && php artisan key:generate
+      - run: ${{ matrix.run }}
+
+  go:
+    needs: changes
+    if: needs.changes.outputs.go != '[]'
+    name: core-go
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/core-go
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: services/core-go/go.mod
+          cache-dependency-path: services/core-go/go.sum
+      - run: go vet ./...
+      - run: go test ./...
