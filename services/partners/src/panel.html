@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>外部廠商控制台</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --text:#1d2330; --muted:#667085; --line:#e4e7ec; --accent:#2563eb; --bad:#dc2626; --ok:#16a34a; --warn:#d97706; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0f1218; --card:#171b23; --text:#e6e9ef; --muted:#98a2b3; --line:#2a303b; --accent:#60a5fa; --bad:#f87171; --ok:#4ade80; --warn:#fbbf24; } }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.5 -apple-system, "PingFang TC", "Noto Sans TC", sans-serif; background:var(--bg); color:var(--text); }
+  header { padding:16px 20px; border-bottom:1px solid var(--line); display:flex; flex-wrap:wrap; gap:12px; align-items:center; }
+  h1 { font-size:18px; margin:0 12px 0 0; }
+  .presets button { margin:2px; }
+  button { font:inherit; padding:6px 12px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--text); cursor:pointer; }
+  button:hover { border-color:var(--accent); }
+  button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  main { display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:16px; padding:16px 20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+  .card h2 { font-size:15px; margin:0 0 10px; display:flex; justify-content:space-between; align-items:center; }
+  .badge { font-size:12px; padding:2px 8px; border-radius:99px; border:1px solid var(--line); }
+  .badge.normal { color:var(--ok); } .badge.down, .badge.hang { color:var(--bad); }
+  label { display:grid; grid-template-columns: 1fr 120px 52px; gap:8px; align-items:center; margin:6px 0; color:var(--muted); }
+  label .val { text-align:right; color:var(--text); font-variant-numeric: tabular-nums; }
+  select, input[type=number] { font:inherit; padding:4px 6px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--text); width:100%; }
+  input[type=range] { width:100%; }
+  .wide { grid-column: 1 / -1; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  td, th { padding:4px 6px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
+  td.t { color:var(--muted); white-space:nowrap; font-variant-numeric: tabular-nums; }
+  .k-fault, .k-dropped, .k-error, .k-full { color:var(--bad); }
+  .k-duplicate, .k-out_of_order, .k-replay { color:var(--warn); }
+  .stats { display:flex; flex-wrap:wrap; gap:8px; }
+  .stat { border:1px solid var(--line); border-radius:8px; padding:6px 10px; }
+  .stat b { font-size:16px; margin-left:6px; }
+  .log { max-height:420px; overflow:auto; }
+</style>
+</head>
+<body>
+<header>
+  <h1>外部廠商控制台（partners）</h1>
+  <div class="presets" id="presets"></div>
+  <button id="clear">清除紀錄</button>
+  <span id="run" title="sandbox 設定：有 seed 時，同一筆流程每次遇到同樣的故障"></span>
+</header>
+<main id="cards"></main>
+<main>
+  <section class="card wide"><h2>累計</h2><div class="stats" id="stats"></div></section>
+  <section class="card wide"><h2>最近事件</h2><div class="log"><table id="log"></table></div></section>
+</main>
+<script>
+const FIELDS = {
+  payment:   { title: '金流（mockpay）', extra: [['declineRate','付款被拒',1],['duplicateRate','重複 callback',1],['dropCallbackRate','callback 遺失',1],['callbackDelayMs','callback 延遲 ms',5000]] },
+  logistics: { title: '物流（mocklogi）', extra: [['duplicateRate','重複 callback',1],['outOfOrderRate','狀態亂序',1],['stepDelayMs','每步間隔 ms',20000]] },
+  clinic:    { title: '寵物醫院（mockvet）', extra: [['fullRate','額滿（保留時 409）',1],['holdTtlSeconds','保留有效秒數',600,10],['confirmLostRate','確認成功但回應遺失',1]] },
+  line:      { title: 'LINE 推播（mockline）', extra: [] },
+};
+const COMMON = [['latencyMs','延遲 ms',5000],['latencyJitterMs','隨機延遲 ms（長尾）',5000],['errorRate','錯誤率（500）',1]];
+let state;
+
+async function api(method, path, body) {
+  // 沒有 body 就不帶 content-type：Fastify 收到「JSON 但內容是空的」會回 400（預設情境、清除紀錄的按鈕都沒有 body）
+  const r = await fetch(path, body ? { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : { method });
+  return r.json();
+}
+function control(partner, [key, label, max, stepOverride]) {
+  const v = state.settings[partner][key];
+  const step = stepOverride ?? (max === 1 ? 0.05 : 100);
+  const shown = max === 1 ? Math.round(v * 100) + '%' : v;
+  return `<label>${label}<input type="range" min="0" max="${max}" step="${step}" value="${v}" data-p="${partner}" data-k="${key}"><span class="val">${shown}</span></label>`;
+}
+function renderCards() {
+  document.getElementById('cards').innerHTML = Object.entries(FIELDS).map(([p, f]) => {
+    const s = state.settings[p];
+    return `<section class="card"><h2>${f.title}<span class="badge ${s.mode}">${s.mode}</span></h2>
+      <label>狀態<select data-p="${p}" data-k="mode">${['normal','down','hang'].map(m => `<option value="${m}" ${s.mode===m?'selected':''}>${{normal:'正常',down:'掛掉（503）',hang:'不回應（逾時）'}[m]}</option>`).join('')}</select><span></span></label>
+      ${p === 'logistics' ? `<label>狀態回呼<select data-p="logistics" data-k="statusCallbacks">${[['on','送（已收件→配送中→送達）'],['off','不送（壓測用）']].map(([v, l]) => `<option value="${v}" ${s.statusCallbacks===v?'selected':''}>${l}</option>`).join('')}</select><span></span></label>` : ''}
+      ${[...COMMON, ...f.extra].map(c => control(p, c)).join('')}</section>`;
+  }).join('');
+  document.querySelectorAll('#cards [data-p]').forEach(el => el.addEventListener('change', async (e) => {
+    const { p, k } = e.target.dataset;
+    state.settings = await api('PUT', '/admin/settings', { [p]: { [k]: e.target.value } });
+    renderCards();
+  }));
+}
+function renderLive() {
+  document.getElementById('run').textContent = `seed：${state.run.seed || '（隨機）'}　時間壓縮：×${state.run.timeScale}`;
+  document.getElementById('stats').innerHTML = Object.entries(state.stats).sort().map(([k, v]) => `<span class="stat">${k}<b>${v}</b></span>`).join('') || '<span style="color:var(--muted)">尚無事件</span>';
+  document.getElementById('log').innerHTML = state.events.map(e => {
+    const cls = 'k-' + (e.kind.split('.').pop());
+    return `<tr><td class="t">${e.at.slice(11, 23)}</td><td>${e.partner}</td><td class="${cls}">${e.kind}</td><td>${e.detail}</td></tr>`;
+  }).join('');
+}
+async function refresh(full) {
+  state = await api('GET', '/admin/state');
+  if (full) {
+    renderCards();
+    document.getElementById('presets').innerHTML = Object.entries(state.presets).map(([k, label]) => `<button data-preset="${k}" title="${label}">${label.split('：')[0]}</button>`).join('');
+    document.querySelectorAll('[data-preset]').forEach(b => b.addEventListener('click', async () => { await api('POST', '/admin/presets/' + b.dataset.preset); refresh(true); }));
+  }
+  renderLive();
+}
+document.getElementById('clear').addEventListener('click', async () => { await api('POST', '/admin/clear-log'); refresh(false); });
+refresh(true);
+setInterval(() => refresh(false), 1000);
+</script>
+</body>
+</html>

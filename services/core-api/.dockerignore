@@ -1,0 +1,16 @@
+# sandbox／CI 用的正式模式 image（Dockerfile.sandbox）：只放程式碼，不放本機的東西
+.env
+.env.*
+!.env.example
+vendor
+node_modules
+storage/app/keys
+storage/logs/*
+storage/framework/cache/*
+storage/framework/sessions/*
+storage/framework/views/*
+bootstrap/cache/*.php
+.phpunit.cache
+.phpunit.result.cache
+public/hot
+public/storage
