@@ -1,0 +1,52 @@
+{
+  "name": "support",
+  "version": "0.0.1",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "scripts": {
+    "build": "nest build",
+    "start": "nest start",
+    "start:prod": "node dist/src/main",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "llm:isolation": "vitest run --config vitest.config.real.ts test/llm-isolation.real.ts",
+    "llm:latency": "vitest run --config vitest.config.real.ts test/llm-latency.real.ts",
+    "start:dev": "nest start --watch",
+    "lint": "oxlint --type-aware src/ test/",
+    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
+    "db": "nest build && node dist/src/db/cli.js",
+    "llm:ask": "vitest run --config vitest.config.real.ts test/ask.real.ts",
+    "llm:router": "vitest run --config vitest.config.real.ts test/router.real.ts",
+    "llm:join": "vitest run --config vitest.config.real.ts test/join.real.ts test/join-injection.real.ts",
+    "llm:refund": "vitest run --config vitest.config.real.ts test/refund.real.ts",
+    "llm:evals": "vitest run --config vitest.config.real.ts test/evals.real.ts"
+  },
+  "dependencies": {
+    "@nestjs/common": "^12.0.1",
+    "@nestjs/core": "^12.0.1",
+    "@nestjs/platform-express": "^12.0.1",
+    "@nestjs/platform-socket.io": "^12.4.2",
+    "@nestjs/websockets": "^12.4.2",
+    "mysql2": "^3.24.6",
+    "nestjs-pino": "5.3.1",
+    "pino": "10.4.0",
+    "pino-http": "11.0.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1",
+    "socket.io": "^4.8.4",
+    "yaml": "^2.8.1"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^12.0.0",
+    "@types/express": "^5.0.0",
+    "@types/node": "^24.0.0",
+    "oxlint": "^1.58.0",
+    "oxlint-tsgolint": "^7.0.2005",
+    "prettier": "^3.4.2",
+    "socket.io-client": "^4.8.4",
+    "typescript": "^6.0.2",
+    "vite": "^8.0.0",
+    "vitest": "^4.1.2"
+  }
+}
