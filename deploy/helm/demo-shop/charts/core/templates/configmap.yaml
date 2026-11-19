@@ -1,0 +1,92 @@
+# core 的設定：和 sandbox 一樣用正式模式（APP_ENV=production），值對應 services/core-api/.env.example
+# APP_KEY、JWT 金鑰放在 Secret core-secrets（Terraform 產生，不進 chart、不進 git）
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: core-env }
+data:
+  APP_NAME: core-api
+  APP_ENV: production
+  APP_DEBUG: "false"
+  APP_URL: http://core.localhost:8088
+  APP_LOCALE: zh_TW
+  APP_FALLBACK_LOCALE: en
+  APP_TIMEZONE: Asia/Taipei
+  BCRYPT_ROUNDS: "12"
+  LOG_CHANNEL: stderr
+  LOG_STDERR_FORMATTER: App\Logging\FlatJsonFormatter
+  LOG_LEVEL: {{ .Values.global.logLevel | quote }}
+  DB_CONNECTION: mysql
+{{- if eq .Values.api.runtime "go" }}
+  DB_HOST: mysql      # Go 版程序內就有連線池（database/sql，每個 Pod 最多 DB_MAX_OPEN 條），直連 MySQL
+  DB_PORT: "3306"
+{{- else }}
+  DB_HOST: proxysql   # 經過連線池（ProxySQL）；上 AWS 換成 RDS Proxy 的端點
+  DB_PORT: "6033"
+{{- end }}
+  DB_DATABASE: demo
+  DB_USERNAME: demo
+  DB_PASSWORD: demo
+  SESSION_DRIVER: redis
+  SESSION_LIFETIME: "120"
+  CACHE_STORE: redis
+  QUEUE_CONNECTION: database
+  FILESYSTEM_DISK: local
+  REDIS_CLIENT: phpredis
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  AWS_ACCESS_KEY_ID: test
+  AWS_SECRET_ACCESS_KEY: test
+  AWS_DEFAULT_REGION: {{ .Values.global.aws.region }}
+  AWS_ENDPOINT: {{ .Values.global.aws.endpoint }}
+  SQS_PREFIX: {{ .Values.global.aws.sqsPrefix }}
+  AWS_BUCKET: {{ .Values.global.aws.productImagesBucket }}   # 商品圖片：所有 Pod 共用同一個 bucket（不能存 Pod 的硬碟）
+  AWS_USE_PATH_STYLE_ENDPOINT: "true"                        # LocalStack 用 http://localstack:4566/<bucket>/...
+  PAYMENT_RECONCILE_AFTER_SECONDS: "20"
+  PAYMENT_EXPIRE_AFTER_SECONDS: "180"
+  BFF_SERVICE_KEY: {{ .Values.global.secrets.bffServiceKey }}
+  HUB_URL: http://hub:3000
+  INTERNAL_API_KEY: {{ .Values.global.secrets.internalApiKey }}
+  TIME_SCALE: {{ .Values.global.timeScale | quote }}
+  FPM_MAX_CHILDREN: {{ .Values.api.fpmMaxChildren | quote }}
+---
+# nginx 和 PHP 在同一個 Pod：用 127.0.0.1 連，擴充時兩個一起加
+#   fpm：nginx → FastCGI 9000；octane：nginx → HTTP 8000（Swoole 常駐，框架只啟動一次）。靜態檔都由 nginx 直接回
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: core-nginx-conf }
+data:
+  default.conf: |
+    server {
+      listen 80;
+      root /var/www/html/public;
+      index index.php;
+{{- if eq .Values.api.runtime "octane" }}
+      location / { try_files $uri @octane; }
+      location @octane {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # nginx 收到請求的時間（秒.毫秒）：core 從這裡開始算處理時間，含等 Octane 有空的 worker
+        proxy_set_header X-Request-Start "t=${msec}";
+        proxy_read_timeout 30s;
+      }
+{{- else }}
+      location / { try_files $uri $uri/ /index.php?$query_string; }
+      location ~ \.php$ {
+        fastcgi_pass 127.0.0.1:9000;
+        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
+        include fastcgi_params;
+        # nginx 收到請求的時間（秒.毫秒）：core 從這裡開始算處理時間，含等 FPM 有空的 worker
+        fastcgi_param HTTP_X_REQUEST_START "t=${msec}";
+        fastcgi_read_timeout 30s;
+      }
+      location ~ ^/(fpm-status|fpm-ping)$ {
+        fastcgi_pass 127.0.0.1:9000;
+        fastcgi_param SCRIPT_FILENAME $fastcgi_script_name;
+        include fastcgi_params;
+      }
+{{- end }}
+    }

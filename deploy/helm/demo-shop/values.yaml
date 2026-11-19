@@ -1,0 +1,83 @@
+# 電商 demo 的 K8s 設定（由 Terraform 安裝：deploy/terraform/modules/demo-shop，會帶入 image tag 和隨機產生的密鑰）
+global:
+  image:
+    repository: demo-sandbox        # 本機 build 的正式模式 image，用 kind load 載入叢集（不用 registry）
+    tag: latest
+    pullPolicy: IfNotPresent
+  logLevel: info
+  # 前台＋BFF 用哪一版：nest（NestJS BFF＋靜態前台）／next（Next.js 一個服務，掛在 bff 的名稱下）。.env 的 WEB_RUNTIME，或 scripts/k8s.sh web next
+  webRuntime: nest
+  # Datadog：預設關；根目錄 .env 的 DATA_DOG=TRUE 時，scripts/bootstrap.sh 會打開並安裝 Agent
+  datadog:
+    enabled: false
+    env: k8s
+    apm: true                       # false：只送指標和 log、不開 APM trace（壓測用：trace 很吃 CPU）；.env 的 DATA_DOG_APM
+  timeScale: 1                      # 時間壓縮（壓力測試一律 1）
+  aws:
+    # LocalStack 和佇列由 Terraform 建（deploy/terraform/modules/localstack、queues），不在這個 chart 裡
+    region: ap-northeast-1
+    endpoint: http://localstack:4566
+    sqsPrefix: http://localstack:4566/000000000000
+    productImagesBucket: demo-product-images   # 商品圖片（Terraform 的 queues 模組建）；圖片不能存 Pod 的硬碟，core 有 2～8 個 Pod
+  # 只是預設值：Terraform 安裝時會用隨機產生的值覆寫（set_sensitive，不會出現在 git 裡）
+  secrets:
+    internalApiKey: local-internal-key
+    bffServiceKey: local-bff-service-key
+    mockpayWebhookSecret: mockpay-secret
+    mocklogiWebhookSecret: mocklogi-secret
+
+core:
+  api:
+    # HPA 看 CPU：PHP-FPM 是吃 CPU 的
+    replicas: 2
+    minReplicas: 2
+    maxReplicas: 8
+    targetCPU: 60
+    fpmMaxChildren: 10               # 每個 Pod 的 PHP worker 數（FPM 的 max_children，Octane 的 --workers 也用這個）；要更多就多開 Pod
+    # fpm：PHP-FPM，每個請求重新啟動框架；octane：Laravel Octane＋Swoole，框架只啟動一次、之後的請求重複使用
+    # 同一個 image 兩種都能跑，壓測可以切換對照（.env 的 CORE_RUNTIME，或 scripts/k8s.sh runtime octane）
+    # 預設 fpm：壓測時 Octane 在 20／秒以上比 FPM 慢（20261015-1608、1632），原因還在查；Octane 的設定都留著
+    runtime: fpm
+  relay:
+    # outbox → SQS。KEDA 直接查 MySQL：還沒送出的 outbox 每多 perPod 筆就多開一個（多個 relay 用 SKIP LOCKED 各拿各的）
+    # 壓測時 CPU 很低（在等 MySQL、SQS），HPA 看 CPU 不會擴；看積壓才準
+    min: 1
+    max: 4
+    perPod: 200
+  worker:
+    # 回程佇列（integration-events）每積壓 perPod 則多開一個 core-worker；每個 worker 一條資料庫連線
+    min: 2
+    max: 8
+    perPod: 50
+  seed:
+    customers: 400                  # 壓測的虛擬使用者各用一個帳號
+    stock: 1000000
+
+storefront:
+  enabled: true                    # webRuntime=next 時 Terraform 會設成 false
+
+bff:
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPU: 60
+
+hub:
+  # hub-api：收廠商的 webhook（收到就轉進 SQS）。廠商一次重送大量 webhook 時是真的吃 CPU → HPA 看 CPU
+  api:
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPU: 60
+  # 每個廠商一個 worker Deployment，KEDA 依各自佇列「排了幾則」擴充（hub 的時間都在等廠商，CPU 很低，HPA 看 CPU 不會擴）
+  # pool：每個 Pod 同時處理幾則；perPod：每多幾則排隊就多開一個 Pod
+  workers:
+    - { name: payment, queue: payment-commands, pool: 20, perPod: 20, max: 6 }
+    - { name: payment-reconcile, queue: payment-reconcile-commands, pool: 5, perPod: 20, max: 2 }
+    - { name: logistics, queue: logistics-commands, pool: 10, perPod: 20, max: 6 }
+    - { name: clinic, queue: clinic-commands, pool: 5, perPod: 20, max: 3 }
+    - { name: line, queue: line-commands, pool: 5, perPod: 20, max: 2 }
+    - { name: core, queue: core-commands, pool: 5, perPod: 50, max: 1 }
+
+ingress:
+  host: localhost                   # http://localhost:8088（前台、/api、/webhooks）
+  coreHost: core.localhost          # http://core.localhost:8088/admin（後台）
+  partnersHost: partners.localhost  # http://partners.localhost:8088（廠商控制台）

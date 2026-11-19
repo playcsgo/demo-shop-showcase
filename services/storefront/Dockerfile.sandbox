@@ -1,0 +1,13 @@
+# 正式版前台（K8s 用）：先 build 成靜態檔，再用 nginx 提供
+# 開發用的是 Dockerfile（vite dev server）；/api 由 Ingress 轉給 BFF，前台本身只負責靜態檔
+FROM node:24-alpine AS build
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY . .
+RUN npm run build
+
+FROM nginx:1.27-alpine
+COPY --from=build /app/dist /usr/share/nginx/html
+# 單頁應用：找不到的路徑都回 index.html（例如 /orders/123 由前端路由處理）
+RUN printf 'server {\n  listen 80;\n  root /usr/share/nginx/html;\n  location / { try_files $uri /index.html; }\n  location /assets/ { expires 1y; add_header Cache-Control "public, immutable"; }\n}\n' > /etc/nginx/conf.d/default.conf

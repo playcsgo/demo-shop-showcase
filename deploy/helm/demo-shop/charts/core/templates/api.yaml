@@ -1,0 +1,82 @@
+# core-api：PHP-FPM＋nginx（sidecar）在同一個 Pod。HPA 看 CPU 擴充（PHP 是吃 CPU 的）
+apiVersion: v1
+kind: Service
+metadata: { name: core, labels: { app: core-api } }
+spec:
+  selector: { app: core-api }
+  ports: [{ port: 80, targetPort: 80 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: core-api, labels: { app: core-api, demo/service: core-api } }
+spec:
+  replicas: {{ .Values.api.replicas }}
+  selector: { matchLabels: { app: core-api } }
+  template:
+    metadata: { labels: { app: core-api, demo/service: core-api } }
+    spec:
+      # 縮容時：先等入口（Traefik）把這個 Pod 從名單拿掉，再停止服務。沒有這段，縮容那幾秒轉過來的請求會卡到 30 秒逾時（504，實際踩到）
+      terminationGracePeriodSeconds: 40
+      {{- include "core.migrate" . | nindent 6 }}
+      containers:
+        - name: php
+          image: {{ include "core.image" . }}
+          imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+          {{- if eq .Values.api.runtime "octane" }}
+          # Octane（Swoole）：worker 數和 FPM 的 max_children 一樣 → 每個 Pod 的資料庫連線數不變，只比較「框架要不要每個請求重新啟動」
+          # max-requests：每個 worker 處理這麼多個請求就換新的，就算有記憶體洩漏也不會一直累積
+          # task-workers 不能寫 0：Octane 用 `?:` 判斷，"0" 會被當成沒設定 → auto（依 CPU 核數開，每個約 50 MB）→ 超過記憶體上限被 OOM kill（實際踩到）
+          command: ["/var/www/html/docker/sandbox-entrypoint.sh", "php", "artisan", "octane:start", "--server=swoole",
+                    "--host=127.0.0.1", "--port=8000", "--workers={{ .Values.api.fpmMaxChildren }}", "--task-workers=1", "--max-requests=1000"]
+          {{- end }}
+          {{- include "core.env" . | nindent 10 }}
+            - { name: SERVICE_NAME, value: core-api }
+            # 壓測工具、sandbox UI 讀這個判斷執行方式；go：image 是 services/core-go 的版本，php-fpm 由 Go 接手（FastCGI 同一個 port）
+            - { name: CORE_RUNTIME, value: {{ .Values.api.runtime | quote }} }
+            {{- include "demo.datadog.env" (dict "root" . "service" "core-api" "kind" "php-fpm") | nindent 12 }}
+          ports: [{ containerPort: {{ if eq .Values.api.runtime "octane" }}8000{{ else }}9000{{ end }} }]
+          lifecycle:
+            preStop: { exec: { command: ["sleep", "15"] } }   # 比 nginx 晚停：nginx 手上的請求還要靠 FPM 處理完
+          # Octane 的 worker 常駐、每個約 55 MB（FPM 的 worker 用完就清掉）：10 個 worker＋master、manager、task 約 650 MB
+          resources: { requests: { cpu: 200m, memory: 256Mi }, limits: { memory: {{ if eq .Values.api.runtime "octane" }}1Gi{{ else }}768Mi{{ end }} } }
+          volumeMounts:
+            - { name: jwt, mountPath: /var/www/html/storage/app/keys, readOnly: true }
+        - name: nginx
+          image: {{ .Values.global.image.repository }}/core-nginx:{{ .Values.global.image.tag }}
+          imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+          ports: [{ containerPort: 80 }]
+          lifecycle:
+            preStop: { exec: { command: ["sh", "-c", "sleep 10 && nginx -s quit"] } }   # 等入口更新名單，再優雅結束（做完手上的請求）
+          readinessProbe:
+            httpGet: { path: /up, port: 80 }
+            periodSeconds: 5
+            # /up 也經過 PHP-FPM：壓力大時跟一般請求一起排隊。預設等 1 秒、失敗 1 次就移出，
+            # 壓測時 Pod 只是忙就被判定沒準備好 → 流量集中到其他 Pod → 更多 Pod 被移出（惡性循環）
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources: { requests: { cpu: 20m, memory: 32Mi } }
+          volumeMounts:
+            - { name: nginx-conf, mountPath: /etc/nginx/conf.d }
+      volumes:
+        - name: jwt   # JWT 金鑰：所有 core-api Pod 用同一組（BFF 用公鑰驗章）
+          secret:
+            secretName: core-secrets
+            defaultMode: 0444   # FPM 的 worker 用 www-data 跑，要讀得到（只限 demo）
+            items:
+              - { key: jwt-private.pem, path: jwt-private.pem }
+              - { key: jwt-public.pem, path: jwt-public.pem }
+        - name: nginx-conf
+          configMap: { name: core-nginx-conf }
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: { name: core-api }
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: core-api }
+  minReplicas: {{ .Values.api.minReplicas }}
+  maxReplicas: {{ .Values.api.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource: { name: cpu, target: { type: Utilization, averageUtilization: {{ .Values.api.targetCPU }} } }
+  behavior:
+    scaleDown: { stabilizationWindowSeconds: 60 }   # demo：壓力停止後 1 分鐘就開始縮回來（預設 5 分鐘）

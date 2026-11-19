@@ -1,0 +1,25 @@
+# 前台：build 好的靜態檔＋nginx（/api 由 Ingress 轉給 BFF）
+apiVersion: v1
+kind: Service
+metadata: { name: storefront, labels: { app: storefront } }
+spec:
+  selector: { app: storefront }
+  ports: [{ port: 80 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: storefront, labels: { app: storefront, demo/service: storefront } }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: storefront } }
+  template:
+    metadata: { labels: { app: storefront, demo/service: storefront } }
+    spec:
+      containers:
+        - name: nginx
+          image: {{ .Values.global.image.repository }}/storefront:{{ .Values.global.image.tag }}
+          imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+          ports: [{ containerPort: 80 }]
+          readinessProbe:
+            httpGet: { path: /, port: 80 }
+          resources: { requests: { cpu: 10m, memory: 16Mi } }

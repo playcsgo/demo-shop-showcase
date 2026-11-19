@@ -1,0 +1,122 @@
+{{- define "hub.env" -}}
+- { name: LOG_LEVEL, value: {{ .Values.global.logLevel }} }
+- { name: AWS_DEFAULT_REGION, value: {{ .Values.global.aws.region }} }
+- { name: AWS_ENDPOINT, value: {{ .Values.global.aws.endpoint }} }
+- { name: SQS_PREFIX, value: {{ .Values.global.aws.sqsPrefix }} }
+- { name: REDIS_URL, value: "redis://redis:6379/2" }
+- { name: PARTNERS_URL, value: "http://partners:4000" }
+- { name: INTERNAL_API_KEY, value: {{ .Values.global.secrets.internalApiKey }} }
+- { name: MOCKPAY_WEBHOOK_SECRET, value: {{ .Values.global.secrets.mockpayWebhookSecret }} }
+- { name: MOCKLOGI_WEBHOOK_SECRET, value: {{ .Values.global.secrets.mocklogiWebhookSecret }} }
+- { name: TIME_SCALE, value: {{ .Values.global.timeScale | quote }} }
+{{- end }}
+# hub-api：接廠商的 webhook、core 的同步內部 API（醫院保留時段），不消費佇列（HUB_QUEUES 空的）
+apiVersion: v1
+kind: Service
+metadata: { name: hub, labels: { app: hub-api } }
+spec:
+  selector: { app: hub-api }
+  ports: [{ port: 3000 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: hub-api, labels: { app: hub-api, demo/service: hub-api } }
+spec:
+  # 不寫 replicas：Pod 數交給下面的 HPA（寫了的話，每次 helm upgrade 都會被改回固定值）
+  selector: { matchLabels: { app: hub-api } }
+  template:
+    metadata: { labels: { app: hub-api, demo/service: hub-api } }
+    spec:
+      containers:
+        - name: hub
+          image: {{ .Values.global.image.repository }}/hub:{{ .Values.global.image.tag }}
+          imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+          env:
+            {{- include "hub.env" . | nindent 12 }}
+            - { name: HUB_QUEUES, value: "" }
+            {{- include "demo.datadog.env" (dict "root" . "service" "hub-api" "kind" "node") | nindent 12 }}
+          ports: [{ containerPort: 3000 }]
+          readinessProbe:
+            httpGet: { path: /health, port: 3000 }
+            periodSeconds: 5
+          resources: { requests: { cpu: 100m, memory: 128Mi }, limits: { memory: 512Mi } }
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: { name: hub-api }
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: hub-api }
+  minReplicas: {{ .Values.api.minReplicas }}
+  maxReplicas: {{ .Values.api.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource: { name: cpu, target: { type: Utilization, averageUtilization: {{ .Values.api.targetCPU }} } }
+---
+# KEDA 讀 SQS 用的帳密（LocalStack 不檢查，填 test）；上雲改用 IRSA（Pod 的 IAM 角色），不放帳密
+apiVersion: v1
+kind: Secret
+metadata: { name: hub-keda-aws }
+stringData: { AWS_ACCESS_KEY_ID: test, AWS_SECRET_ACCESS_KEY: test }
+---
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata: { name: hub-keda-aws }
+spec:
+  secretTargetRef:
+    - { parameter: awsAccessKeyID, name: hub-keda-aws, key: AWS_ACCESS_KEY_ID }
+    - { parameter: awsSecretAccessKey, name: hub-keda-aws, key: AWS_SECRET_ACCESS_KEY }
+{{- range .Values.workers }}
+---
+# hub-{{ .name }}：只處理 {{ .queue }}，池子 {{ .pool }}；KEDA 依這條佇列「排了幾則」擴充（每 {{ .perPod }} 則一個 Pod，最多 {{ .max }} 個）
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: hub-{{ .name }}, labels: { app: hub-{{ .name }}, demo/service: hub-{{ .name }} } }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: hub-{{ .name }} } }
+  template:
+    metadata: { labels: { app: hub-{{ .name }}, demo/service: hub-{{ .name }} } }
+    spec:
+      terminationGracePeriodSeconds: 30   # 縮容時：不再拿新的，手上的做完才結束
+      containers:
+        - name: hub
+          image: {{ $.Values.global.image.repository }}/hub:{{ $.Values.global.image.tag }}
+          imagePullPolicy: {{ $.Values.global.image.pullPolicy }}
+          env:
+            {{- include "hub.env" $ | nindent 12 }}
+            - { name: HUB_QUEUES, value: "{{ .queue }}:{{ .pool }}" }
+            {{- include "demo.datadog.env" (dict "root" $ "service" (printf "hub-%s" .name) "kind" "node") | nindent 12 }}
+          readinessProbe:
+            httpGet: { path: /health, port: 3000 }
+            periodSeconds: 5
+          resources: { requests: { cpu: 50m, memory: 128Mi }, limits: { memory: 512Mi } }
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata: { name: hub-{{ .name }} }
+spec:
+  scaleTargetRef: { name: hub-{{ .name }} }
+  minReplicaCount: 1
+  maxReplicaCount: {{ .max }}
+  pollingInterval: 5        # 每 5 秒看一次佇列（demo 要看得到變化；正式環境可以久一點）
+  cooldownPeriod: 60
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        # 擴充要快、縮容要慢：原本縮容只等 30 秒，Pod 數在 1～5 之間來回跳（擴充後很快消化完 → 縮回 → 又積壓）
+        # 改成佇列「持續 2 分鐘都很短」才縮，而且一次最多縮一半
+        scaleUp: { stabilizationWindowSeconds: 0 }
+        scaleDown:
+          stabilizationWindowSeconds: 120
+          policies: [{ type: Percent, value: 50, periodSeconds: 30 }]
+  triggers:
+    - type: aws-sqs-queue
+      authenticationRef: { name: hub-keda-aws }
+      metadata:
+        queueURL: {{ $.Values.global.aws.sqsPrefix }}/{{ .queue }}
+        queueLength: "{{ .perPod }}"     # 每個 Pod 負責幾則排隊
+        awsRegion: {{ $.Values.global.aws.region }}
+        # KEDA 跑在 keda namespace，短名稱 localstack 解析不到，要寫完整的叢集內網址
+        awsEndpoint: http://localstack.{{ $.Release.Namespace }}.svc.cluster.local:4566
+        scaleOnInFlight: "true"          # 處理中（看不見）的也算
+{{- end }}

@@ -1,0 +1,3 @@
+proxysql:
+  replicas: 2
+  config: ""   # Terraform 帶入 infra/proxysql/proxysql.cnf

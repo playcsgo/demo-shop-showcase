@@ -1,0 +1,17 @@
+# 錯誤看板（errors-*.json）要看錯誤訊息：metrics.localhost 的 Grafana 也接上 Loki（scripts/k8s.sh metrics）
+# grafana_datasource 標籤：Grafana 的 sidecar 會自動載入
+# dev-container 每套各自一個 Loki，用容器名連（compose.sandbox.metrics.yaml 把它接上 kind 網路）
+# uid 和 Prometheus 的 env 同名：看板用 ${env} 選資料來源，切換「第幾套」時 log 跟著換
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loki-datasources
+  labels: { grafana_datasource: "1" }
+data:
+  loki.yaml: |
+    apiVersion: 1
+    datasources:
+      - { name: Loki K8s, uid: k8s, type: loki, access: proxy, url: "http://loki.observability.svc.cluster.local:3100", jsonData: { maxLines: 5000 } }
+      - { name: Loki dev-container 01, uid: sandbox-01, type: loki, access: proxy, url: "http://demo-sb01-loki-1:3100", jsonData: { maxLines: 5000 } }
+      - { name: Loki dev-container 02, uid: sandbox-02, type: loki, access: proxy, url: "http://demo-sb02-loki-1:3100", jsonData: { maxLines: 5000 } }
+      - { name: Loki dev-container 03, uid: sandbox-03, type: loki, access: proxy, url: "http://demo-sb03-loki-1:3100", jsonData: { maxLines: 5000 } }

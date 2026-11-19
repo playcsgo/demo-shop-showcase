@@ -1,0 +1,66 @@
+# Prometheus＋Grafana（scripts/k8s.sh metrics）：每一站的處理時間、每個服務的 CPU
+# 本機記憶體有限：只留這張看板用得到的部分。log 用的 Grafana（grafana.localhost）不動，這套另外開在 metrics.localhost
+alertmanager: { enabled: false }
+nodeExporter: { enabled: false }
+kubeStateMetrics: { enabled: false }
+defaultRules: { create: false }
+kubeControllerManager: { enabled: false }
+kubeScheduler: { enabled: false }
+kubeEtcd: { enabled: false }
+kubeProxy: { enabled: false }
+kubeApiServer: { enabled: false }
+coreDns: { enabled: false }
+
+# K8s 的 CPU：只留 demo-shop 每個容器的 CPU，標上和 sandbox 一樣的 env、app_service，看板用同一條查詢
+kubelet:
+  serviceMonitor:
+    probes: false
+    resource: false
+    cAdvisorMetricRelabelings:
+      - { sourceLabels: [__name__], action: keep, regex: container_cpu_usage_seconds_total }
+      - { sourceLabels: [namespace], action: keep, regex: demo-shop }
+      - { sourceLabels: [container], action: drop, regex: "|POD" }   # 空的是整個 Pod 的加總，留著會重複算
+      - { targetLabel: env, replacement: k8s }
+      # core-api-dc9945f65-4trkh → core-api、k6-load-qqmvl → k6-load、mysql-0 → mysql
+      - { sourceLabels: [pod], regex: "(.+?)(-[a-z0-9]{8,10}-[a-z0-9]{5}|-[a-z0-9]{5}|-[0-9]+)", targetLabel: app_service, replacement: "$1" }
+
+prometheus:
+  # NodePort：叢集外的 dev-container 跑 k6 時也要送得進來（loadtest/collect/k6-prometheus.mjs）
+  service: { type: NodePort, nodePort: 30090 }
+  prometheusSpec:
+    enableRemoteWriteReceiver: true   # k6 用 remote write 把計數送進來
+    scrapeInterval: 15s
+    retention: 2d
+    resources: { requests: { cpu: 100m, memory: 256Mi }, limits: { memory: 1Gi } }
+    # 預設只抓這個 Helm release 建的 ServiceMonitor；statsd-exporter 的是另外 apply 的
+    serviceMonitorSelectorNilUsesHelmValues: false
+    # sandbox 的 CPU：kubelet 看不到 compose 的容器（scripts/k8s.sh metrics 開的 demo-docker-cpu）
+    additionalScrapeConfigs:
+      - job_name: sandbox-docker-cpu
+        honor_labels: true
+        static_configs:
+          - targets: ["demo-docker-cpu:9101"]
+
+prometheusOperator:
+  # webhook 是擋錯誤設定用的，本機用不到，還要多一組憑證和兩個 Job
+  admissionWebhooks: { enabled: false }
+  tls: { enabled: false }
+  resources: { requests: { cpu: 20m, memory: 64Mi }, limits: { memory: 128Mi } }
+
+grafana:
+  defaultDashboardsEnabled: false
+  # 和 log 用的 Grafana 同版本：Node 上已經有這個 image，不用再下載
+  image: { tag: 12.4.12 }
+  # 第一次啟動要跑資料庫 migration，機器忙時要好幾分鐘；預設的等待時間太短，會還沒跑完就被重啟、從頭再來
+  livenessProbe: { httpGet: { path: /api/health, port: 3000 }, initialDelaySeconds: 600, timeoutSeconds: 30, failureThreshold: 10 }
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    hosts: [metrics.localhost]
+  resources: { requests: { cpu: 50m, memory: 128Mi }, limits: { memory: 384Mi } }
+  # 和 log 用的 Grafana 一樣：本機工具不用登入（不要用在共用的環境）
+  grafana.ini:
+    auth: { disable_login_form: true }
+    auth.anonymous: { enabled: true, org_role: Admin }
+    analytics: { reporting_enabled: false }
+    dashboards: { default_home_dashboard_path: /tmp/dashboards/service-performance.json }

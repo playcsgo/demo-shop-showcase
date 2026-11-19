@@ -1,0 +1,21 @@
+# 灌種子資料＋壓測用的顧客和庫存：每次 helm install／upgrade 都跑，但只有資料庫是空的才灌（已有資料就不動）
+# 不用「只在 install 時跑」：第一次安裝如果中途逾時，之後的 upgrade 就再也不會灌了
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: core-seed
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: 10
+  template:
+    metadata: { labels: { app: core-seed, demo/service: core-seed } }
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: seed
+          image: {{ include "core.image" . }}
+          imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+          command: ["sh", "-c", "until php artisan migrate --force --isolated; do sleep 3; done && php artisan sandbox:data --seed-if-empty --customers={{ .Values.seed.customers }} --stock={{ .Values.seed.stock }}"]
+          {{- include "core.env" . | nindent 10 }}

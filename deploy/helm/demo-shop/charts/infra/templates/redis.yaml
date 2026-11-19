@@ -1,0 +1,22 @@
+# Redis：session、快取、鎖、hub 的 webhook 去重（上雲換成 ElastiCache）
+apiVersion: v1
+kind: Service
+metadata: { name: redis, labels: { app: redis } }
+spec:
+  selector: { app: redis }
+  ports: [{ port: 6379 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: redis, labels: { app: redis, demo/service: redis } }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: redis } }
+  template:
+    metadata: { labels: { app: redis, demo/service: redis } }
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports: [{ containerPort: 6379 }]
+          resources: { requests: { cpu: 50m, memory: 64Mi } }

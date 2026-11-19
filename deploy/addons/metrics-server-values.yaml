@@ -1,0 +1,3 @@
+# metrics-server：HPA 要用的 CPU／記憶體數據。kind 的 kubelet 憑證是自簽的，所以略過驗證（只限本機）
+args:
+  - --kubelet-insecure-tls
