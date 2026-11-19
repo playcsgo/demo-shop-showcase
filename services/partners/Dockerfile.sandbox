@@ -1,0 +1,8 @@
+# sandbox／CI 用：不 watch、程式碼 build 進 image（partners 是假廠商，直接用 tsx 執行就好）
+FROM node:22-alpine
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund --omit=dev
+COPY . .
+ENV NODE_ENV=production
+CMD ["node_modules/.bin/tsx", "src/server.ts"]
