@@ -1,0 +1,766 @@
+{
+  "uid": "service-performance",
+  "title": "服務效能：每一站與 CPU",
+  "tags": [
+    "demo-shop"
+  ],
+  "schemaVersion": 39,
+  "refresh": "15s",
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "templating": {
+    "list": [
+      {
+        "name": "env",
+        "label": "環境",
+        "type": "custom",
+        "query": "k8s,dev-container : sandbox-01",
+        "current": {
+          "text": "k8s",
+          "value": "k8s"
+        },
+        "options": [
+          {
+            "text": "k8s",
+            "value": "k8s",
+            "selected": true
+          },
+          {
+            "text": "dev-container",
+            "value": "sandbox-01",
+            "selected": false
+          }
+        ]
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 10,
+      "title": "k6 計畫",
+      "description": "這段時間 k6 預計要送的結帳數＝實際送出＋沒送出。只算 loadtest/run.mjs 跑的壓測（UI 的壓測也是）",
+      "type": "stat",
+      "gridPos": {
+        "h": 3,
+        "w": 4,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(max_over_time(k6_http_reqs_total{env=\"$env\", step=\"checkout\"}[$__range])) or vector(0)) + (sum(max_over_time(k6_dropped_iterations_total{env=\"$env\", scenario=~\".*order.*\"}[$__range])) or vector(0))",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 11,
+      "title": "系統完成",
+      "description": "已交給物流的訂單數（分成多個包裹也只算一筆）",
+      "type": "stat",
+      "gridPos": {
+        "h": 3,
+        "w": 4,
+        "x": 4,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(sum_over_time(((demo_order_lifecycle_ms_count{env=\"$env\"} - (demo_order_lifecycle_ms_count{env=\"$env\"} offset 15s)) > 0 or ((demo_order_lifecycle_ms_count{env=\"$env\"} < (demo_order_lifecycle_ms_count{env=\"$env\"} offset 15s)) * 1) or ((demo_order_lifecycle_ms_count{env=\"$env\"} unless last_over_time(demo_order_lifecycle_ms_count{env=\"$env\"}[10m] offset 15s)) * 1))[$__range:15s])) or vector(0))",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 12,
+      "title": "未完成",
+      "description": "已被受理（2xx）但還沒交給物流。壓測中不是 0 是正常的；跑完沒歸零就是卡住",
+      "type": "stat",
+      "gridPos": {
+        "h": 3,
+        "w": 4,
+        "x": 8,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "clamp_min((sum(max_over_time(k6_http_reqs_total{env=\"$env\", step=\"checkout\", status=~\"2..\"}[$__range])) or vector(0)) - ((sum(sum_over_time(((demo_order_lifecycle_ms_count{env=\"$env\"} - (demo_order_lifecycle_ms_count{env=\"$env\"} offset 15s)) > 0 or ((demo_order_lifecycle_ms_count{env=\"$env\"} < (demo_order_lifecycle_ms_count{env=\"$env\"} offset 15s)) * 1) or ((demo_order_lifecycle_ms_count{env=\"$env\"} unless last_over_time(demo_order_lifecycle_ms_count{env=\"$env\"}[10m] offset 15s)) * 1))[$__range:15s])) or vector(0))), 0)",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 13,
+      "title": "沒送出",
+      "description": "k6 的虛擬使用者不夠，請求根本沒發出（報告的「進不來」）。大於 0 代表壓力沒有真的打到系統",
+      "type": "stat",
+      "gridPos": {
+        "h": 3,
+        "w": 4,
+        "x": 12,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(max_over_time(k6_dropped_iterations_total{env=\"$env\", scenario=~\".*order.*\"}[$__range])) or vector(0))",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 14,
+      "title": "API 拒絕",
+      "description": "結帳回 4xx，例如庫存不足、限流。不一定是錯，要看情境",
+      "type": "stat",
+      "gridPos": {
+        "h": 3,
+        "w": 4,
+        "x": 16,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(max_over_time(k6_http_reqs_total{env=\"$env\", step=\"checkout\", status=~\"4..\"}[$__range])) or vector(0))",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 15,
+      "title": "系統錯誤",
+      "description": "結帳回 5xx 或連線失敗（k6 的 status 是 0）",
+      "type": "stat",
+      "gridPos": {
+        "h": 3,
+        "w": 4,
+        "x": 20,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(max_over_time(k6_http_reqs_total{env=\"$env\", step=\"checkout\", status=~\"5..|0\"}[$__range])) or vector(0))",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 1,
+      "title": "每個服務「收到 → 做完」花多久（毫秒，p50／p90／p99）",
+      "description": "橫軸是一筆直送訂單依序經過的七站，縱軸是那一站自己的處理時間（不是累計），範圍是右上角選的時間。百分位數依 bucket 估算，和 Datadog 的 distribution 不會完全相同。",
+      "type": "trend",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 3
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.5, sum by (station_order, le) (increase(demo_pipeline_handle_ms_bucket{station_order!=\"\", env=\"$env\"}[$__range])))",
+          "format": "table",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.9, sum by (station_order, le) (increase(demo_pipeline_handle_ms_bucket{station_order!=\"\", env=\"$env\"}[$__range])))",
+          "format": "table",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.99, sum by (station_order, le) (increase(demo_pipeline_handle_ms_bucket{station_order!=\"\", env=\"$env\"}[$__range])))",
+          "format": "table",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "station_order",
+            "mode": "outer"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Time 1": true,
+              "Time 2": true,
+              "Time 3": true
+            },
+            "renameByName": {
+              "Value #A": "P50",
+              "Value #B": "P90",
+              "Value #C": "P99"
+            }
+          }
+        },
+        {
+          "id": "convertFieldType",
+          "options": {
+            "conversions": [
+              {
+                "targetField": "station_order",
+                "destinationType": "number"
+              }
+            ]
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "station_order"
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "always",
+            "pointSize": 9,
+            "spanNulls": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "P50"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#2a78d6"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "P90"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#eb6834"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "P99"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#1baf7a"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "station_order"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "min",
+                "value": 0.6
+              },
+              {
+                "id": "max",
+                "value": 7.4
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "1": {
+                        "text": "① core-api 結帳 API",
+                        "index": 0
+                      },
+                      "2": {
+                        "text": "② core-relay 付款指令",
+                        "index": 1
+                      },
+                      "3": {
+                        "text": "③ hub 呼叫金流",
+                        "index": 2
+                      },
+                      "4": {
+                        "text": "④ hub 收付款通知",
+                        "index": 3
+                      },
+                      "5": {
+                        "text": "⑤ core-worker 寫出貨",
+                        "index": 4
+                      },
+                      "6": {
+                        "text": "⑥ core-relay 出貨指令",
+                        "index": 5
+                      },
+                      "7": {
+                        "text": "⑦ hub 交給物流",
+                        "index": 6
+                      }
+                    }
+                  },
+                  {
+                    "type": "range",
+                    "options": {
+                      "from": 0.01,
+                      "to": 0.99,
+                      "result": {
+                        "text": " ",
+                        "index": 20
+                      }
+                    }
+                  },
+                  {
+                    "type": "range",
+                    "options": {
+                      "from": 1.01,
+                      "to": 1.99,
+                      "result": {
+                        "text": " ",
+                        "index": 21
+                      }
+                    }
+                  },
+                  {
+                    "type": "range",
+                    "options": {
+                      "from": 2.01,
+                      "to": 2.99,
+                      "result": {
+                        "text": " ",
+                        "index": 22
+                      }
+                    }
+                  },
+                  {
+                    "type": "range",
+                    "options": {
+                      "from": 3.01,
+                      "to": 3.99,
+                      "result": {
+                        "text": " ",
+                        "index": 23
+                      }
+                    }
+                  },
+                  {
+                    "type": "range",
+                    "options": {
+                      "from": 4.01,
+                      "to": 4.99,
+                      "result": {
+                        "text": " ",
+                        "index": 24
+                      }
+                    }
+                  },
+                  {
+                    "type": "range",
+                    "options": {
+                      "from": 5.01,
+                      "to": 5.99,
+                      "result": {
+                        "text": " ",
+                        "index": 25
+                      }
+                    }
+                  },
+                  {
+                    "type": "range",
+                    "options": {
+                      "from": 6.01,
+                      "to": 6.99,
+                      "result": {
+                        "text": " ",
+                        "index": 26
+                      }
+                    }
+                  },
+                  {
+                    "type": "range",
+                    "options": {
+                      "from": 7.01,
+                      "to": 7.99,
+                      "result": {
+                        "text": " ",
+                        "index": 27
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.axisGridShow",
+                "value": false
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "xField": "station_order",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "每個 Pod 的平均 CPU（核；有擴充時看單一 Pod 有沒有吃滿）",
+      "description": "先把同一個 Pod 裡的容器加起來，再對同一個服務的所有 Pod 取平均。虛線是 1 核：單執行緒的服務（hub、core-worker、core-relay、localstack、redis、partners）一個 Pod 最多 1 核，碰到虛線就是滿了；core-api（PHP-FPM）、MySQL 是多程序，可以超過 1 核。",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 11
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "avg by (app_service) (sum by (app_service, pod) (rate(container_cpu_usage_seconds_total{env=\"$env\"}[1m])))",
+          "legendFormat": "{{app_service}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: 核",
+          "decimals": 2,
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "spanNulls": false,
+            "thresholdsStyle": {
+              "mode": "dashed"
+            },
+            "axisSoftMax": 1
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ],
+          "sortBy": "Max",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    }
+  ]
+}

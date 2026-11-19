@@ -1,0 +1,24 @@
+# Traefik（入口）在 kind 上的設定：跑在控制節點、直接用 Node 的 port 80（kind 再把它對應到主機的 8088）
+# ingress-nginx 已在 2026-03 退役，改用 Traefik：一樣吃 K8s 的 Ingress 資源
+deployment:
+  replicas: 1
+nodeSelector:
+  ingress-ready: "true"
+tolerations:
+  - { key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule }
+ports:
+  web:
+    hostPort: 80
+# 新版 chart 的 Service 類型寫在 service.spec.type（寫成 service.type 會被忽略，變成 LoadBalancer）
+# kind 沒有雲端負載平衡器，LoadBalancer 的外部 IP 永遠是 pending，Terraform 會一直等到逾時；流量本來就走 hostPort
+service:
+  spec:
+    type: ClusterIP
+providers:
+  kubernetesIngress:
+    enabled: true
+  kubernetesCRD:
+    enabled: true
+ingressClass:
+  enabled: true
+  isDefaultClass: true

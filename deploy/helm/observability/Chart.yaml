@@ -1,0 +1,4 @@
+apiVersion: v2
+name: observability
+version: 0.1.0
+description: K8s 裡的 debug log：Alloy（收 demo-shop 所有 Pod 的 log）→ Loki → Grafana。設定檔和 docker compose 共用（由 Terraform 讀 repo 的檔案帶進來）

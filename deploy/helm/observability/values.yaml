@@ -1,0 +1,13 @@
+# 這些值由 Terraform 帶入（deploy/terraform/modules/observability）：設定檔直接讀 repo 裡的檔案，和 docker compose 同一份
+logNamespace: demo-shop        # 只收這個 namespace 的 Pod
+retention: 72h                 # Loki 保留多久
+lokiConfig: ""                 # infra/loki/config.yaml
+alloyConfig: ""                # infra/alloy/k8s.alloy
+dashboards: {}                 # infra/grafana/dashboards/*.json（檔名 → 內容）
+grafanaHost: grafana.localhost # http://grafana.localhost:8088
+mysqlHost: mysql.demo-shop.svc.cluster.local:3306   # Grafana 查業務資料（唯讀帳號）
+
+images:
+  loki: grafana/loki:3.7.8
+  grafana: grafana/grafana:12.4.12
+  alloy: grafana/alloy:v1.20.1

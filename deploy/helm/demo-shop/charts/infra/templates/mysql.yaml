@@ -1,0 +1,44 @@
+# MySQL：StatefulSet＋PVC（kind 內建的 local-path 儲存）。上雲時換成 RDS，這段就不需要了
+# 初始化 SQL（infra/mysql/init.sql）由 Terraform 建成 ConfigMap mysql-init（deploy/terraform/modules/demo-shop）
+apiVersion: v1
+kind: Service
+metadata: { name: mysql, labels: { app: mysql } }
+spec:
+  selector: { app: mysql }
+  ports: [{ port: 3306 }]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: { name: mysql, labels: { app: mysql, demo/service: mysql } }
+spec:
+  serviceName: mysql
+  replicas: 1
+  selector: { matchLabels: { app: mysql } }
+  template:
+    metadata: { labels: { app: mysql, demo/service: mysql } }
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:8.4
+          args: ["--max-connections=400"]   # 多個 core Pod × FPM worker 數，加上 worker 程序
+          env:
+            - { name: MYSQL_ROOT_PASSWORD, value: root }
+            - { name: MYSQL_DATABASE, value: demo }
+            - { name: MYSQL_USER, value: demo }
+            - { name: MYSQL_PASSWORD, value: demo }
+          ports: [{ containerPort: 3306 }]
+          readinessProbe:
+            exec: { command: ["mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot"] }
+            periodSeconds: 5
+          resources: { requests: { cpu: 250m, memory: 512Mi } }
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/mysql }
+            - { name: init, mountPath: /docker-entrypoint-initdb.d }
+      volumes:
+        - name: init
+          configMap: { name: mysql-init }
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources: { requests: { storage: 2Gi } }

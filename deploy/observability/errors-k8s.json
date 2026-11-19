@@ -1,0 +1,1159 @@
+{
+  "uid": "errors-k8s",
+  "title": "錯誤：K8s",
+  "tags": [
+    "demo-shop",
+    "errors"
+  ],
+  "schemaVersion": 39,
+  "refresh": "15s",
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "links": [
+    {
+      "title": "Pod 重啟／OOM（Headlamp）",
+      "type": "link",
+      "url": "http://headlamp.localhost:8088",
+      "icon": "external link",
+      "targetBlank": true
+    },
+    {
+      "title": "服務效能",
+      "type": "link",
+      "url": "/d/service-performance/?var-env=${env}&${__url_time_range}",
+      "icon": "dashboard"
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "env",
+        "type": "datasource",
+        "query": "loki",
+        "regex": "/^Loki K8s$/",
+        "hide": 2
+      },
+      {
+        "name": "level",
+        "label": "等級",
+        "type": "custom",
+        "query": "error,warn",
+        "multi": true,
+        "includeAll": false,
+        "current": {
+          "text": [
+            "error",
+            "warn"
+          ],
+          "value": [
+            "error",
+            "warn"
+          ]
+        },
+        "options": [
+          {
+            "text": "error",
+            "value": "error",
+            "selected": true
+          },
+          {
+            "text": "warn",
+            "value": "warn",
+            "selected": true
+          }
+        ]
+      },
+      {
+        "name": "service",
+        "label": "服務",
+        "type": "query",
+        "datasource": {
+          "type": "loki",
+          "uid": "${env}"
+        },
+        "refresh": 2,
+        "sort": 1,
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".+",
+        "definition": "label_values(service)",
+        "query": {
+          "label": "service",
+          "stream": "",
+          "type": 1,
+          "refId": "service"
+        },
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "錯誤訊息（log）：哪個服務、哪個 Pod、說了什麼",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "panels": []
+    },
+    {
+      "id": 2,
+      "title": "哪個服務／Pod 出錯",
+      "description": "選的時間範圍內，每個來源的 error／warn log 筆數",
+      "type": "table",
+      "gridPos": {
+        "h": 10,
+        "w": 9,
+        "x": 0,
+        "y": 1
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "${env}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (service, pod) (count_over_time({service=~\"$service\", level=~\"$level\"} | label_format pod=`{{ regexReplaceAll \"^[^/]+/([^:]+):.*$\" .instance \"$1\" }}` [$__range]))",
+          "queryType": "instant",
+          "instant": true,
+          "range": false,
+          "legendFormat": ""
+        }
+      ],
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns"
+          }
+        },
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "Value": "次數",
+              "Value #A": "次數",
+              "service": "服務",
+              "pod": "Pod"
+            },
+            "indexByName": {
+              "Value": 0,
+              "Value #A": 1,
+              "service": 2,
+              "pod": 3
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "次數",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "",
+          "custom": {
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "次數"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 70
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "等級"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 60
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "服務"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 120
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "訊息"
+            },
+            "properties": [
+              {
+                "id": "custom.minWidth",
+                "value": 360
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    },
+    {
+      "id": 3,
+      "title": "錯誤訊息排行",
+      "description": "同樣的訊息合在一起數；err 是 Node（BFF、hub）附上的底層錯誤。點儲存格可以看完整內容",
+      "type": "table",
+      "gridPos": {
+        "h": 10,
+        "w": 15,
+        "x": 9,
+        "y": 1
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "${env}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(50, sum by (service, level, msg, err) (count_over_time({service=~\"$service\", level=~\"$level\"} | json msg=\"msg\", err=\"err\" [$__range])))",
+          "queryType": "instant",
+          "instant": true,
+          "range": false,
+          "legendFormat": ""
+        }
+      ],
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns"
+          }
+        },
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "Value": "次數",
+              "Value #A": "次數",
+              "service": "服務",
+              "level": "等級",
+              "msg": "訊息",
+              "err": "底層錯誤"
+            },
+            "indexByName": {
+              "Value": 0,
+              "Value #A": 1,
+              "service": 2,
+              "level": 3,
+              "msg": 4,
+              "err": 5
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "次數",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "",
+          "custom": {
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "次數"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 70
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "等級"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 60
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "服務"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 120
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "訊息"
+            },
+            "properties": [
+              {
+                "id": "custom.minWidth",
+                "value": 360
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    },
+    {
+      "id": 4,
+      "title": "error／warn 數量（依服務）",
+      "description": "",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 11
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "${env}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (service, level) (count_over_time({service=~\"$service\", level=~\"$level\"} [$__auto]))",
+          "legendFormat": "{{service}} {{level}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "min": 0,
+          "noValue": "沒有錯誤",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": false
+          }
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "max",
+            "lastNotNull"
+          ],
+          "sortBy": "Max",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "錯誤 log（新的在上面；展開一行看完整 JSON，含 stack、correlation_id）",
+      "type": "logs",
+      "gridPos": {
+        "h": 16,
+        "w": 24,
+        "x": 0,
+        "y": 18
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "${env}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{service=~\"$service\", level=~\"$level\"} | json msg=\"msg\", err=\"err\", path=\"path\", cid=\"correlation_id\", ex=\"exception.class\", at=\"exception.file\" | label_format pod=`{{ regexReplaceAll \"^[^/]+/([^:]+):.*$\" .instance \"$1\" }}` | line_format `{{.service}}  {{.pod}}  {{.msg}}{{if .err}}  ← {{.err}}{{end}}{{if .ex}}  [{{.ex}} @ {{.at}}]{{end}}{{if .path}}  {{.path}}{{end}}{{if .cid}}  cid={{.cid}}{{end}}`"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true,
+        "dedupStrategy": "none",
+        "prettifyLogMessage": false
+      }
+    },
+    {
+      "id": 6,
+      "type": "row",
+      "title": "錯誤數字（指標）",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 34
+      },
+      "panels": []
+    },
+    {
+      "id": 7,
+      "title": "5xx／連線失敗",
+      "description": "所有 k6 請求裡回 5xx 或連不上（status 0）的次數：系統自己壞了",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 35
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(max_over_time(k6_http_reqs_total{env=\"$env\", status=~\"5..|0\"}[$__range])) or vector(0))",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 8,
+      "title": "4xx 被拒",
+      "description": "所有 k6 請求裡回 4xx 的次數：請求被 API 擋下（驗證、庫存、權限、限流）",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 35
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(max_over_time(k6_http_reqs_total{env=\"$env\", status=~\"4..\"}[$__range])) or vector(0))",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 9,
+      "title": "請求失敗率",
+      "description": "非 2xx／3xx 的請求 ÷ 全部請求",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 35
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(max_over_time(k6_http_reqs_total{env=\"$env\", status!~\"2..|3..\"}[$__range])) or vector(0)) / sum(max_over_time(k6_http_reqs_total{env=\"$env\"}[$__range]))",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 2,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.01
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 10,
+      "title": "合作夥伴呼叫失敗",
+      "description": "hub 呼叫金流、物流、LINE、獸醫系統時被拒（rejected）或可重試的錯誤（retryable_error）",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 35
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(increase(demo_partner_call{env=\"$env\", outcome!=\"ok\"}[$__range])) or vector(0))",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 11,
+      "title": "死信佇列（DLQ）現在幾筆",
+      "description": "重試用完還是失敗、被丟進 *-dlq 的訊息；> 0 就要查 log",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 35
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(last_over_time(demo_queue_depth{env=\"$env\", queue=~\".*-dlq\"}[5m])) or vector(0))",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 12,
+      "title": "資料不一致",
+      "description": "不變式檢查（訂單、付款、庫存、帳務彼此對不上）目前的筆數",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 35
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(last_over_time(demo_invariant_mismatches{env=\"$env\"}[10m])) or vector(0))",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 13,
+      "title": "k6 錯誤回應（每秒，每個步驟 × 狀態碼）",
+      "description": "各步驟每秒回幾次非 2xx／3xx。status 0 是連不上；總數看上面的數字",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 39
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (step, status) (rate(k6_http_reqs_total{env=\"$env\", status!~\"2..|3..\"}[$__rate_interval])) > 0",
+          "legendFormat": "{{step}} {{status}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "decimals": 1,
+          "min": 0,
+          "noValue": "沒有錯誤",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": false
+          }
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "max",
+            "lastNotNull"
+          ],
+          "sortBy": "Max",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 14,
+      "title": "合作夥伴呼叫失敗（每秒）",
+      "description": "依合作夥伴與結果分",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 48
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (partner, outcome) (rate(demo_partner_call{env=\"$env\", outcome!=\"ok\"}[$__rate_interval])) > 0",
+          "legendFormat": "{{partner}} {{outcome}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "cps",
+          "decimals": 1,
+          "min": 0,
+          "noValue": "沒有失敗",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": false
+          }
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "max",
+            "lastNotNull"
+          ],
+          "sortBy": "Max",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 15,
+      "title": "斷路器：跳開（OPEN／HALF_OPEN）",
+      "description": "hub 每個合作夥伴的斷路器；有線就是跳開了，請求直接被擋、不打給合作夥伴",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 48
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (partner, state) (demo_breaker_open{env=\"$env\"}) > 0",
+          "legendFormat": "{{partner}} {{state}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "min": 0,
+          "noValue": "全部 CLOSED",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": false
+          }
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "max",
+            "lastNotNull"
+          ],
+          "sortBy": "Max",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 16,
+      "title": "死信佇列（DLQ）深度",
+      "description": "只畫有東西的佇列",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 56
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (queue) (demo_queue_depth{env=\"$env\", queue=~\".*-dlq\"}) > 0",
+          "legendFormat": "{{queue}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "min": 0,
+          "noValue": "沒有卡住的訊息",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": false
+          }
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "max",
+            "lastNotNull"
+          ],
+          "sortBy": "Max",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 17,
+      "title": "資料不一致（依檢查項目）",
+      "description": "只畫有不一致的檢查",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 56
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (check) (demo_invariant_mismatches{env=\"$env\"}) > 0",
+          "legendFormat": "{{check}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "min": 0,
+          "noValue": "全部一致",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": false
+          }
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "max",
+            "lastNotNull"
+          ],
+          "sortBy": "Max",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 18,
+      "title": "MySQL 連線數爆掉被拒（每秒）",
+      "description": "Connection_errors_max_connections 的增加速度：連線數超過 max_connections，新連線直接被 MySQL 拒絕",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 56
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(demo_mysql_max_connection_errors{env=\"$env\"}[$__rate_interval]) > 0",
+          "legendFormat": "被拒連線"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "cps",
+          "decimals": 1,
+          "min": 0,
+          "noValue": "沒有被拒",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": false
+          }
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "max",
+            "lastNotNull"
+          ],
+          "sortBy": "Max",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    }
+  ]
+}

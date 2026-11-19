@@ -1,0 +1,12 @@
+apiVersion: v2
+name: demo-shop
+version: 0.1.0
+description: 電商 demo 的總 chart：每個服務是一個子 chart（在公司裡各團隊各自部署自己的 chart；demo 用總 chart 一次裝好）
+# 子 chart 都放在 charts/ 底下（不從外部下載）
+dependencies:
+  - { name: infra, version: 0.1.0 }
+  - { name: core, version: 0.1.0 }
+  - { name: bff, version: 0.1.0 }
+  - { name: hub, version: 0.1.0 }
+  - { name: partners, version: 0.1.0 }
+  - { name: storefront, version: 0.1.0, condition: storefront.enabled }   # webRuntime=next 時不部署（頁面由 bff 提供）

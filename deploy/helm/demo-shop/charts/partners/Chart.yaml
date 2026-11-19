@@ -1,0 +1,4 @@
+apiVersion: v2
+name: partners
+version: 0.1.0
+description: demo-shop — partners

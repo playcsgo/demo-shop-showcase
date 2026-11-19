@@ -1,0 +1,89 @@
+# statsd_exporter（scripts/k8s.sh metrics）：收 Datadog Agent 轉發的 DogStatsD 指標，換成 Prometheus 格式
+# 程式一行都不用改：demo.pipeline.handle_ms 照舊送給 Agent，Agent 多轉發一份到這裡（DD_STATSD_FORWARD_HOST）
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: statsd-exporter
+data:
+  mapping.yaml: |
+    mappings:
+      # Datadog 的 distribution 由 Datadog 算百分位數；這裡要先決定 bucket，P50／P90／P99 是依 bucket 估算的
+      # 格子太寬會估不準：10～30 秒只有一格時，實際 17 秒的 P99 會估成 28 秒
+      - match: demo.pipeline.handle_ms
+        name: demo_pipeline_handle_ms
+        observer_type: histogram
+        histogram_options:
+          buckets: [1, 2, 3, 5, 7, 10, 15, 20, 25, 30, 40, 50, 75, 100, 150, 200, 300, 500, 750, 1000, 1500, 2000, 3000, 5000, 7500, 10000, 15000, 20000, 25000, 30000, 60000]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: statsd-exporter
+  labels: { app: statsd-exporter }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: statsd-exporter }
+  template:
+    metadata:
+      labels: { app: statsd-exporter }
+    spec:
+      containers:
+        - name: statsd-exporter
+          image: prom/statsd-exporter:v0.28.0
+          args: ["--statsd.mapping-config=/etc/statsd/mapping.yaml", "--statsd.listen-tcp="]
+          ports:
+            - { name: statsd, containerPort: 9125, protocol: UDP }
+            - { name: metrics, containerPort: 9102 }
+          readinessProbe:
+            httpGet: { path: /-/ready, port: metrics }
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { memory: 256Mi }
+          volumeMounts:
+            - { name: mapping, mountPath: /etc/statsd }
+      volumes:
+        - name: mapping
+          configMap: { name: statsd-exporter }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: statsd-exporter
+  labels: { app: statsd-exporter }
+spec:
+  # NodePort：叢集外的 sandbox 也要送得進來（compose.sandbox.metrics.yaml，透過 kind 這個 Docker 網路）
+  type: NodePort
+  selector: { app: statsd-exporter }
+  ports:
+    - { name: statsd, port: 9125, protocol: UDP, nodePort: 30125 }
+    - { name: metrics, port: 9102 }
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: statsd-exporter
+spec:
+  selector:
+    matchLabels: { app: statsd-exporter }
+  endpoints:
+    - port: metrics
+      interval: 15s
+      # 主線七站（和 Datadog 看板同一份清單）：中文站名＋順序（點線圖的橫軸要數字，站名由看板的 value mapping 顯示）
+      # version（image 的 tag）不能丟：exporter 不會清掉舊版本的 series，丟掉後新舊版本標籤相同，Prometheus 只留第一條（最舊、不再變的那條）
+      #   → hub 三站和「系統完成」整輪都是 0（實際踩到）。看板的查詢都是逐條算完再 sum，換版多一條 series 也算得對
+      metricRelabelings:
+        - { sourceLabels: [step], regex: core-api\.post\.checkout, targetLabel: station, replacement: ① core-api 結帳 API }
+        - { sourceLabels: [step], regex: core-api\.post\.checkout, targetLabel: station_order, replacement: "1" }
+        - { sourceLabels: [step], regex: core-relay\.payment\.requested, targetLabel: station, replacement: ② core-relay 送出付款指令 }
+        - { sourceLabels: [step], regex: core-relay\.payment\.requested, targetLabel: station_order, replacement: "2" }
+        - { sourceLabels: [step], regex: hub\.payment\.requested, targetLabel: station, replacement: ③ hub 呼叫金流 }
+        - { sourceLabels: [step], regex: hub\.payment\.requested, targetLabel: station_order, replacement: "3" }
+        - { sourceLabels: [step], regex: hub\.webhook\.mockpay\.charge\.succeeded, targetLabel: station, replacement: ④ hub 收付款通知 }
+        - { sourceLabels: [step], regex: hub\.webhook\.mockpay\.charge\.succeeded, targetLabel: station_order, replacement: "4" }
+        - { sourceLabels: [step], regex: core-worker\.payment\.succeeded, targetLabel: station, replacement: ⑤ core-worker 付款成功→寫出貨 }
+        - { sourceLabels: [step], regex: core-worker\.payment\.succeeded, targetLabel: station_order, replacement: "5" }
+        - { sourceLabels: [step], regex: core-relay\.shipment\.requested, targetLabel: station, replacement: ⑥ core-relay 送出出貨指令 }
+        - { sourceLabels: [step], regex: core-relay\.shipment\.requested, targetLabel: station_order, replacement: "6" }
+        - { sourceLabels: [step], regex: hub\.shipment\.requested, targetLabel: station, replacement: ⑦ hub 交給物流 }
+        - { sourceLabels: [step], regex: hub\.shipment\.requested, targetLabel: station_order, replacement: "7" }

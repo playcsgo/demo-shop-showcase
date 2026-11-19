@@ -1,0 +1,27 @@
+# 入口（Traefik）：主機的 http://localhost:8088 → kind 控制節點的 80 → 這裡
+#   /api → BFF、/webhooks → hub、其他 → 前台（Next.js 版：其他也是 BFF）；後台和廠商控制台用不同的主機名稱（*.localhost 瀏覽器會自動指到本機）
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: demo-shop
+spec:
+  rules:
+    - host: {{ .Values.ingress.host }}
+      http:
+        paths:
+          - { path: /api, pathType: Prefix, backend: { service: { name: bff, port: { number: 3000 } } } }
+          - { path: /webhooks, pathType: Prefix, backend: { service: { name: hub, port: { number: 3000 } } } }
+          {{- if eq .Values.global.webRuntime "next" }}
+          # Next.js 版：頁面和 /api 都是 bff 這個服務
+          - { path: /, pathType: Prefix, backend: { service: { name: bff, port: { number: 3000 } } } }
+          {{- else }}
+          - { path: /, pathType: Prefix, backend: { service: { name: storefront, port: { number: 80 } } } }
+          {{- end }}
+    - host: {{ .Values.ingress.coreHost }}
+      http:
+        paths:
+          - { path: /, pathType: Prefix, backend: { service: { name: core, port: { number: 80 } } } }
+    - host: {{ .Values.ingress.partnersHost }}
+      http:
+        paths:
+          - { path: /, pathType: Prefix, backend: { service: { name: partners, port: { number: 4000 } } } }

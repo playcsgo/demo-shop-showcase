@@ -1,0 +1,770 @@
+{
+  "title": "Demo Shop — 微服務處理時間（每一站花多久）",
+  "description": "壓測時看：一筆直送訂單經過的每個服務「收到 → 做完」花多久，以及整筆訂單從結帳到交給物流花多久（p50／p90／p99）。匯入：Dashboards → New Dashboard → 右上角齒輪 → Import dashboard JSON。",
+  "widgets": [
+    {
+      "id": 3552495460903699,
+      "definition": {
+        "title": "每個服務「收到 → 做完」花多久（毫秒，p50／p90／p99）",
+        "requests": [
+          {
+            "response_format": "scalar",
+            "queries": [
+              {
+                "data_source": "metrics",
+                "name": "q50",
+                "query": "p50:demo.pipeline.handle_ms{$env AND step IN (core-api.post.checkout,core-relay.payment.requested,hub.payment.requested,hub.webhook.mockpay.charge.succeeded,core-worker.payment.succeeded,core-relay.shipment.requested,hub.shipment.requested)} by {step}",
+                "aggregator": "percentile"
+              },
+              {
+                "data_source": "metrics",
+                "name": "q90",
+                "query": "p90:demo.pipeline.handle_ms{$env AND step IN (core-api.post.checkout,core-relay.payment.requested,hub.payment.requested,hub.webhook.mockpay.charge.succeeded,core-worker.payment.succeeded,core-relay.shipment.requested,hub.shipment.requested)} by {step}",
+                "aggregator": "percentile"
+              },
+              {
+                "data_source": "metrics",
+                "name": "q99",
+                "query": "p99:demo.pipeline.handle_ms{$env AND step IN (core-api.post.checkout,core-relay.payment.requested,hub.payment.requested,hub.webhook.mockpay.charge.succeeded,core-worker.payment.succeeded,core-relay.shipment.requested,hub.shipment.requested)} by {step}",
+                "aggregator": "percentile"
+              }
+            ],
+            "formulas": [
+              {
+                "formula": "q50",
+                "alias": "p50"
+              },
+              {
+                "formula": "q90",
+                "alias": "p90"
+              },
+              {
+                "formula": "q99",
+                "alias": "p99"
+              }
+            ]
+          }
+        ],
+        "specification": {
+          "type": "vega-lite",
+          "contents": {
+            "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+            "description": "橫軸是一筆直送訂單依序經過的七站；縱軸是那一站自己的處理時間（不是累計）",
+            "data": {
+              "name": "table1"
+            },
+            "transform": [
+              {
+                "fold": [
+                  "p50",
+                  "p90",
+                  "p99"
+                ],
+                "as": [
+                  "百分位數",
+                  "毫秒"
+                ]
+              },
+              {
+                "calculate": "indexof([\"core-api.post.checkout\",\"core-relay.payment.requested\",\"hub.payment.requested\",\"hub.webhook.mockpay.charge.succeeded\",\"core-worker.payment.succeeded\",\"core-relay.shipment.requested\",\"hub.shipment.requested\"], datum.step)",
+                "as": "順序"
+              },
+              {
+                "calculate": "{'core-api.post.checkout':'① core-api 結帳 API','core-relay.payment.requested':'② core-relay 送出付款指令','hub.payment.requested':'③ hub 呼叫金流','hub.webhook.mockpay.charge.succeeded':'④ hub 收付款通知','core-worker.payment.succeeded':'⑤ core-worker 付款成功→寫出貨','core-relay.shipment.requested':'⑥ core-relay 送出出貨指令','hub.shipment.requested':'⑦ hub 交給物流'}[datum.step]",
+                "as": "站"
+              }
+            ],
+            "width": "container",
+            "height": "container",
+            "layer": [
+              {
+                "mark": {
+                  "type": "line",
+                  "point": {
+                    "size": 60
+                  },
+                  "strokeWidth": 2
+                },
+                "encoding": {
+                  "x": {
+                    "field": "站",
+                    "type": "ordinal",
+                    "sort": {
+                      "field": "順序"
+                    },
+                    "axis": {
+                      "labelAngle": -20,
+                      "title": null
+                    }
+                  },
+                  "y": {
+                    "field": "毫秒",
+                    "type": "quantitative",
+                    "axis": {
+                      "title": "這一站的處理時間（毫秒）"
+                    }
+                  },
+                  "color": {
+                    "field": "百分位數",
+                    "type": "nominal",
+                    "sort": [
+                      "p50",
+                      "p90",
+                      "p99"
+                    ],
+                    "scale": {
+                      "range": [
+                        "#2a78d6",
+                        "#eb6834",
+                        "#1baf7a"
+                      ]
+                    },
+                    "legend": {
+                      "orient": "top",
+                      "title": null
+                    }
+                  },
+                  "tooltip": [
+                    {
+                      "field": "站"
+                    },
+                    {
+                      "field": "百分位數"
+                    },
+                    {
+                      "field": "毫秒",
+                      "format": ".1f"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        "type": "wildcard"
+      },
+      "layout": {
+        "x": 0,
+        "y": 0,
+        "width": 12,
+        "height": 6
+      }
+    },
+    {
+      "id": 4131046957000075,
+      "definition": {
+        "title": "CPU：每個服務用了幾核（1.0＝一整顆核心）",
+        "type": "group",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "id": 3445131631911859,
+            "definition": {
+              "title": "每個服務的 CPU（核；K8s 是同一個服務所有 Pod 加總）",
+              "show_legend": true,
+              "legend_layout": "horizontal",
+              "legend_columns": [
+                "avg",
+                "max",
+                "value"
+              ],
+              "type": "timeseries",
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "a",
+                      "query": "sum:container.cpu.usage{$env} by {service}"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "a / 1000000000"
+                    }
+                  ],
+                  "display_type": "line"
+                }
+              ],
+              "markers": [
+                {
+                  "label": "單執行緒的上限 1 核（hub、core-worker、localstack…）",
+                  "value": "y = 1",
+                  "display_type": "error dashed"
+                }
+              ]
+            },
+            "layout": {
+              "x": 0,
+              "y": 0,
+              "width": 8,
+              "height": 5
+            }
+          },
+          {
+            "id": 1304294804485705,
+            "definition": {
+              "title": "這段時間的最高 CPU（核）",
+              "type": "query_table",
+              "requests": [
+                {
+                  "response_format": "scalar",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "mx",
+                      "query": "sum:container.cpu.usage{$env} by {service}",
+                      "aggregator": "max"
+                    },
+                    {
+                      "data_source": "metrics",
+                      "name": "av",
+                      "query": "sum:container.cpu.usage{$env} by {service}",
+                      "aggregator": "avg"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "mx / 1000000000",
+                      "alias": "最高"
+                    },
+                    {
+                      "formula": "av / 1000000000",
+                      "alias": "平均"
+                    }
+                  ],
+                  "sort": {
+                    "count": 30,
+                    "order_by": [
+                      {
+                        "type": "formula",
+                        "index": 0,
+                        "order": "desc"
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            "layout": {
+              "x": 8,
+              "y": 0,
+              "width": 4,
+              "height": 5
+            }
+          },
+          {
+            "definition": {
+              "title": "每個 Pod 的平均 CPU（核；有擴充時看單一 Pod 有沒有吃滿）",
+              "show_legend": true,
+              "legend_layout": "horizontal",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "a",
+                      "query": "avg:container.cpu.usage{$env} by {service}"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "a / 1000000000"
+                    }
+                  ],
+                  "display_type": "line"
+                }
+              ],
+              "markers": [
+                {
+                  "label": "單執行緒的上限 1 核",
+                  "value": "y = 1",
+                  "display_type": "error dashed"
+                }
+              ]
+            },
+            "layout": {
+              "x": 0,
+              "y": 5,
+              "width": 6,
+              "height": 4
+            }
+          },
+          {
+            "id": 2207346271605640,
+            "definition": {
+              "title": "整台電腦（這個環境所有容器加總，核）",
+              "show_legend": false,
+              "type": "timeseries",
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "a",
+                      "query": "sum:container.cpu.usage{$env}"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "a / 1000000000",
+                      "alias": "所有容器"
+                    }
+                  ],
+                  "display_type": "area"
+                }
+              ],
+              "markers": [
+                {
+                  "label": "這台電腦 12 核",
+                  "value": "y = 12",
+                  "display_type": "error dashed"
+                }
+              ]
+            },
+            "layout": {
+              "x": 6,
+              "y": 5,
+              "width": 6,
+              "height": 4
+            }
+          }
+        ]
+      },
+      "layout": {
+        "x": 0,
+        "y": 6,
+        "width": 12,
+        "height": 10
+      }
+    },
+    {
+      "id": 3514934411319966,
+      "definition": {
+        "title": "整筆訂單：客人按下結帳 → hub 交給物流（含服務之間的佇列和網路）",
+        "type": "group",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "id": 3980885087099182,
+            "definition": {
+              "title": "p50",
+              "type": "query_value",
+              "requests": [
+                {
+                  "response_format": "scalar",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "a",
+                      "query": "p50:demo.order.lifecycle_ms{$env}",
+                      "aggregator": "percentile"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "a"
+                    }
+                  ]
+                }
+              ],
+              "autoscale": false,
+              "custom_unit": "ms",
+              "precision": 0
+            },
+            "layout": {
+              "x": 0,
+              "y": 0,
+              "width": 3,
+              "height": 2
+            }
+          },
+          {
+            "id": 7685549820984639,
+            "definition": {
+              "title": "p90",
+              "type": "query_value",
+              "requests": [
+                {
+                  "response_format": "scalar",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "a",
+                      "query": "p90:demo.order.lifecycle_ms{$env}",
+                      "aggregator": "percentile"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "a"
+                    }
+                  ]
+                }
+              ],
+              "autoscale": false,
+              "custom_unit": "ms",
+              "precision": 0
+            },
+            "layout": {
+              "x": 3,
+              "y": 0,
+              "width": 3,
+              "height": 2
+            }
+          },
+          {
+            "id": 8422859906506176,
+            "definition": {
+              "title": "p99",
+              "type": "query_value",
+              "requests": [
+                {
+                  "response_format": "scalar",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "a",
+                      "query": "p99:demo.order.lifecycle_ms{$env}",
+                      "aggregator": "percentile"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "a"
+                    }
+                  ]
+                }
+              ],
+              "autoscale": false,
+              "custom_unit": "ms",
+              "precision": 0
+            },
+            "layout": {
+              "x": 6,
+              "y": 0,
+              "width": 3,
+              "height": 2
+            }
+          },
+          {
+            "id": 3978984934619724,
+            "definition": {
+              "title": "訂單數（這段時間的總數）",
+              "type": "query_value",
+              "requests": [
+                {
+                  "response_format": "scalar",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "a",
+                      "query": "count:demo.order.lifecycle_ms{$env}.as_count()",
+                      "aggregator": "sum"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "a"
+                    }
+                  ]
+                }
+              ],
+              "autoscale": false,
+              "precision": 0
+            },
+            "layout": {
+              "x": 9,
+              "y": 0,
+              "width": 3,
+              "height": 2
+            }
+          },
+          {
+            "id": 8313645093858225,
+            "definition": {
+              "title": "整筆訂單花多久（隨時間）",
+              "show_legend": true,
+              "legend_layout": "horizontal",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "p50",
+                      "query": "p50:demo.order.lifecycle_ms{$env}"
+                    },
+                    {
+                      "data_source": "metrics",
+                      "name": "p90",
+                      "query": "p90:demo.order.lifecycle_ms{$env}"
+                    },
+                    {
+                      "data_source": "metrics",
+                      "name": "p99",
+                      "query": "p99:demo.order.lifecycle_ms{$env}"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "p50",
+                      "alias": "p50"
+                    },
+                    {
+                      "formula": "p90",
+                      "alias": "p90"
+                    },
+                    {
+                      "formula": "p99",
+                      "alias": "p99"
+                    }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            },
+            "layout": {
+              "x": 0,
+              "y": 2,
+              "width": 12,
+              "height": 4
+            }
+          }
+        ]
+      },
+      "layout": {
+        "x": 0,
+        "y": 16,
+        "width": 12,
+        "height": 7
+      }
+    },
+    {
+      "id": 1421335463605813,
+      "definition": {
+        "title": "每一站的數字（毫秒）",
+        "type": "group",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "id": 6565218750784485,
+            "definition": {
+              "title": "七站（直送訂單會經過的）",
+              "type": "query_table",
+              "requests": [
+                {
+                  "response_format": "scalar",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "p50",
+                      "query": "p50:demo.pipeline.handle_ms{$env AND step IN (core-api.post.checkout,core-relay.payment.requested,hub.payment.requested,hub.webhook.mockpay.charge.succeeded,core-worker.payment.succeeded,core-relay.shipment.requested,hub.shipment.requested)} by {step}",
+                      "aggregator": "percentile"
+                    },
+                    {
+                      "data_source": "metrics",
+                      "name": "p90",
+                      "query": "p90:demo.pipeline.handle_ms{$env AND step IN (core-api.post.checkout,core-relay.payment.requested,hub.payment.requested,hub.webhook.mockpay.charge.succeeded,core-worker.payment.succeeded,core-relay.shipment.requested,hub.shipment.requested)} by {step}",
+                      "aggregator": "percentile"
+                    },
+                    {
+                      "data_source": "metrics",
+                      "name": "p99",
+                      "query": "p99:demo.pipeline.handle_ms{$env AND step IN (core-api.post.checkout,core-relay.payment.requested,hub.payment.requested,hub.webhook.mockpay.charge.succeeded,core-worker.payment.succeeded,core-relay.shipment.requested,hub.shipment.requested)} by {step}",
+                      "aggregator": "percentile"
+                    },
+                    {
+                      "data_source": "metrics",
+                      "name": "n",
+                      "query": "count:demo.pipeline.handle_ms{$env AND step IN (core-api.post.checkout,core-relay.payment.requested,hub.payment.requested,hub.webhook.mockpay.charge.succeeded,core-worker.payment.succeeded,core-relay.shipment.requested,hub.shipment.requested)} by {step}.as_count()",
+                      "aggregator": "sum"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "p50",
+                      "alias": "p50"
+                    },
+                    {
+                      "formula": "p90",
+                      "alias": "p90"
+                    },
+                    {
+                      "formula": "p99",
+                      "alias": "p99"
+                    },
+                    {
+                      "formula": "n",
+                      "alias": "次數（總數）"
+                    }
+                  ],
+                  "sort": {
+                    "count": 50,
+                    "order_by": [
+                      {
+                        "type": "formula",
+                        "index": 2,
+                        "order": "desc"
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            "layout": {
+              "x": 0,
+              "y": 0,
+              "width": 6,
+              "height": 5
+            }
+          },
+          {
+            "id": 4571059784503375,
+            "definition": {
+              "title": "全部（含查詢、登入、購物車，以及 core-worker 處理「金流已收下」等不在主線上的工作）",
+              "type": "query_table",
+              "requests": [
+                {
+                  "response_format": "scalar",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "p50",
+                      "query": "p50:demo.pipeline.handle_ms{$env} by {step}",
+                      "aggregator": "percentile"
+                    },
+                    {
+                      "data_source": "metrics",
+                      "name": "p90",
+                      "query": "p90:demo.pipeline.handle_ms{$env} by {step}",
+                      "aggregator": "percentile"
+                    },
+                    {
+                      "data_source": "metrics",
+                      "name": "p99",
+                      "query": "p99:demo.pipeline.handle_ms{$env} by {step}",
+                      "aggregator": "percentile"
+                    },
+                    {
+                      "data_source": "metrics",
+                      "name": "n",
+                      "query": "count:demo.pipeline.handle_ms{$env} by {step}.as_count()",
+                      "aggregator": "sum"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "p50",
+                      "alias": "p50"
+                    },
+                    {
+                      "formula": "p90",
+                      "alias": "p90"
+                    },
+                    {
+                      "formula": "p99",
+                      "alias": "p99"
+                    },
+                    {
+                      "formula": "n",
+                      "alias": "次數（總數）"
+                    }
+                  ],
+                  "sort": {
+                    "count": 50,
+                    "order_by": [
+                      {
+                        "type": "formula",
+                        "index": 2,
+                        "order": "desc"
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            "layout": {
+              "x": 6,
+              "y": 0,
+              "width": 6,
+              "height": 5
+            }
+          },
+          {
+            "id": 7295259117781537,
+            "definition": {
+              "title": "七站的 p99（隨時間：加壓時哪一站先變慢）",
+              "show_legend": true,
+              "legend_layout": "horizontal",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "a",
+                      "query": "p99:demo.pipeline.handle_ms{$env AND step IN (core-api.post.checkout,core-relay.payment.requested,hub.payment.requested,hub.webhook.mockpay.charge.succeeded,core-worker.payment.succeeded,core-relay.shipment.requested,hub.shipment.requested)} by {step}"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "a"
+                    }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            },
+            "layout": {
+              "x": 0,
+              "y": 5,
+              "width": 12,
+              "height": 4
+            }
+          }
+        ]
+      },
+      "layout": {
+        "x": 0,
+        "y": 23,
+        "width": 12,
+        "height": 10
+      }
+    },
+    {
+      "id": 2321368266883257,
+      "definition": {
+        "type": "note",
+        "content": "**怎麼看**\n\n- **最上面的大圖**：橫軸是一筆直送訂單依序經過的七站，縱軸是那一站**自己**的處理時間（收到 → 做完；不是累計）。三條線是 p50／p90／p99，最高的那一站就是最慢的服務。\n- 處理時間＝程式本身＋它查 MySQL／Redis、呼叫別的服務的時間；**不含**服務之間的佇列和網路（例如訊息在 SQS 裡排隊、relay 每 200 ms 才撈一次 outbox）。\n  - ① core-api 從 nginx 收到請求開始算，**包含**等 PHP-FPM 有空 worker 的時間（FPM 不夠用也是這個服務的問題）。\n- **整筆訂單**：客人按下結帳 → hub 交給物流（不等物流）。這段**包含**站和站之間的佇列和網路。整筆的時間明顯大於七站加起來，就是時間花在站和站之間。\n- 各站的 p99 不能相加：每一站的 p99 通常不是同一筆訂單。\n\n- **CPU 群組**：每個服務用了幾核。瓶頸不一定是最慢的那站，也可能是 CPU 吃到上限的：單執行緒的服務（hub、core-worker、core-relay、localstack、redis、partners）一個容器最多 1 核，碰到虛線就是滿了；core-api（PHP-FPM）、MySQL 是多程序，看整台電腦有沒有滿。CPU 沒滿、處理量卻跟不上的（例如 core-worker），是在等，不是在算。\n\n**注意**\n\n- `demo.pipeline.handle_ms`、`demo.order.lifecycle_ms` 是自訂的 distribution 指標，第一次要到 Metrics → Summary 找到它們、打開 **percentiles**，p50／p90／p99 才有值。\n- 上方的 env 選要看的環境：sandbox 第 1 套是 `sandbox-01`。\n- 時間範圍選壓測那一段。表格、大圖和整筆訂單的 p50／p90／p99 是**整段時間所有樣本一起算**（reduce 選 percentile），和 Grafana、壓測報告同一種算法；不要改回 avg：avg 是每個時間點的百分位數再取平均，尖峰會被攤平（實測 p99 小 2～4 倍）。「隨時間」的折線圖才是每個時間點各自的百分位數。"
+      },
+      "layout": {
+        "x": 0,
+        "y": 33,
+        "width": 12,
+        "height": 5
+      }
+    }
+  ],
+  "template_variables": [
+    {
+      "name": "env",
+      "prefix": "env",
+      "available_values": [
+        "sandbox-01",
+        "k8s",
+        "demo"
+      ],
+      "default": "sandbox-01"
+    }
+  ],
+  "layout_type": "ordered",
+  "notify_list": [],
+  "reflow_type": "fixed"
+}

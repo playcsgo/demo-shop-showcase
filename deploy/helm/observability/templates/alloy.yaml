@@ -1,0 +1,54 @@
+# Alloy：透過 K8s API 讀 demo-shop 每個 Pod 的 log（loki.source.kubernetes，不用掛 Node 的硬碟），推給 Loki
+# 只有 1 個 Pod 就夠：log 是向 API Server 要的，不是讀所在 Node 的檔案
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: alloy }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: { name: alloy-read-logs, namespace: {{ .Values.logNamespace }} }
+rules:
+  - apiGroups: [""]
+    resources: [pods, pods/log]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: { name: alloy-read-logs, namespace: {{ .Values.logNamespace }} }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: alloy-read-logs }
+subjects:
+  - { kind: ServiceAccount, name: alloy, namespace: {{ .Release.Namespace }} }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: alloy-config }
+data:
+  config.alloy: |
+{{ .Values.alloyConfig | indent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: alloy, labels: { app: alloy } }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: alloy } }
+  template:
+    metadata:
+      labels: { app: alloy }
+      annotations:
+        checksum/config: {{ .Values.alloyConfig | sha256sum }}   # 設定改了就重啟
+    spec:
+      serviceAccountName: alloy
+      containers:
+        - name: alloy
+          image: {{ .Values.images.alloy }}
+          args: ["run", "/etc/alloy/config.alloy", "--storage.path=/tmp/alloy", "--server.http.listen-addr=0.0.0.0:12345"]
+          env:
+            - { name: LOG_NAMESPACE, value: {{ .Values.logNamespace }} }
+          ports: [{ containerPort: 12345 }]
+          resources: { requests: { cpu: 50m, memory: 128Mi } }
+          volumeMounts:
+            - { name: config, mountPath: /etc/alloy }
+      volumes:
+        - name: config
+          configMap: { name: alloy-config }

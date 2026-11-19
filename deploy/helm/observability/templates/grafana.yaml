@@ -1,0 +1,83 @@
+# Grafana：資料來源（Loki、MySQL 唯讀）和 dashboard 開機時自動建立；不用登入（只限本機）
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: grafana-provisioning }
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - { name: Loki, uid: loki, type: loki, access: proxy, url: "http://loki:3100", isDefault: true, jsonData: { maxLines: 5000 } }
+      - name: MySQL
+        uid: mysql
+        type: mysql
+        url: {{ .Values.mysqlHost }}
+        user: grafana_ro
+        jsonData: { database: demo, maxOpenConns: 2 }
+        secureJsonData: { password: grafana_ro }
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - { name: demo, folder: Demo, type: file, options: { path: /var/lib/grafana/dashboards } }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: grafana-dashboards }
+data:
+{{- range $name, $json := .Values.dashboards }}
+  {{ $name }}: |
+{{ $json | indent 4 }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: grafana, labels: { app: grafana } }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: grafana } }
+  template:
+    metadata:
+      labels: { app: grafana }
+      annotations:
+        checksum/dashboards: {{ toJson .Values.dashboards | sha256sum }}
+    spec:
+      containers:
+        - name: grafana
+          image: {{ .Values.images.grafana }}
+          env:
+            - { name: GF_AUTH_ANONYMOUS_ENABLED, value: "true" }
+            - { name: GF_AUTH_ANONYMOUS_ORG_ROLE, value: Admin }
+            - { name: GF_AUTH_DISABLE_LOGIN_FORM, value: "true" }
+            - { name: GF_ANALYTICS_REPORTING_ENABLED, value: "false" }
+            - { name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH, value: /var/lib/grafana/dashboards/debug-log.json }
+          ports: [{ containerPort: 3000 }]
+          readinessProbe:
+            httpGet: { path: /api/health, port: 3000 }
+            periodSeconds: 5
+          resources: { requests: { cpu: 50m, memory: 128Mi } }
+          volumeMounts:
+            - { name: provisioning, mountPath: /etc/grafana/provisioning/datasources/datasources.yaml, subPath: datasources.yaml }
+            - { name: provisioning, mountPath: /etc/grafana/provisioning/dashboards/dashboards.yaml, subPath: dashboards.yaml }
+            - { name: dashboards, mountPath: /var/lib/grafana/dashboards }
+      volumes:
+        - name: provisioning
+          configMap: { name: grafana-provisioning }
+        - name: dashboards
+          configMap: { name: grafana-dashboards }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: grafana }
+spec:
+  selector: { app: grafana }
+  ports: [{ port: 3000 }]
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata: { name: grafana }
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: {{ .Values.grafanaHost }}
+      http:
+        paths:
+          - { path: /, pathType: Prefix, backend: { service: { name: grafana, port: { number: 3000 } } } }
