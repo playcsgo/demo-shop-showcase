@@ -1,0 +1,748 @@
+{
+  "currency": "TWD",
+  "products": [
+    {
+      "slug": "freeze-dried-raw-cat",
+      "variants": [
+        {
+          "sku": "DCS-FD-CHK-80",
+          "flavor": "嫩雞",
+          "size_label": "80g",
+          "price": 290,
+          "net_weight_g": 80,
+          "dimensions_mm": null,
+          "shelf_life_days": 540,
+          "storage": "陰涼乾燥處，避免日曬；開封後盡快吃完",
+          "packaging": "夾鏈袋",
+          "shipping_class": "standard",
+          "stock": 40
+        },
+        {
+          "sku": "DCS-FD-CHK-500",
+          "flavor": "嫩雞",
+          "size_label": "500g",
+          "price": 1150,
+          "net_weight_g": 500,
+          "dimensions_mm": null,
+          "shelf_life_days": 540,
+          "storage": "陰涼乾燥處，避免日曬；開封後盡快吃完",
+          "packaging": "夾鏈袋",
+          "shipping_class": "standard",
+          "stock": 20
+        },
+        {
+          "sku": "DCS-FD-SAL-80",
+          "flavor": "鮭魚雞肉",
+          "size_label": "80g",
+          "price": 290,
+          "net_weight_g": 80,
+          "dimensions_mm": null,
+          "shelf_life_days": 540,
+          "storage": "陰涼乾燥處，避免日曬；開封後盡快吃完",
+          "packaging": "夾鏈袋",
+          "shipping_class": "standard",
+          "stock": 40
+        },
+        {
+          "sku": "DCS-FD-SAL-500",
+          "flavor": "鮭魚雞肉",
+          "size_label": "500g",
+          "price": 1150,
+          "net_weight_g": 500,
+          "dimensions_mm": null,
+          "shelf_life_days": 540,
+          "storage": "陰涼乾燥處，避免日曬；開封後盡快吃完",
+          "packaging": "夾鏈袋",
+          "shipping_class": "standard",
+          "stock": 20
+        },
+        {
+          "sku": "DCS-FD-BEEF-80",
+          "flavor": "草飼牛",
+          "size_label": "80g",
+          "price": 290,
+          "net_weight_g": 80,
+          "dimensions_mm": null,
+          "shelf_life_days": 540,
+          "storage": "陰涼乾燥處，避免日曬；開封後盡快吃完",
+          "packaging": "夾鏈袋",
+          "shipping_class": "standard",
+          "stock": 40
+        },
+        {
+          "sku": "DCS-FD-BEEF-500",
+          "flavor": "草飼牛",
+          "size_label": "500g",
+          "price": 1150,
+          "net_weight_g": 500,
+          "dimensions_mm": null,
+          "shelf_life_days": 540,
+          "storage": "陰涼乾燥處，避免日曬；開封後盡快吃完",
+          "packaging": "夾鏈袋",
+          "shipping_class": "standard",
+          "stock": 0
+        }
+      ],
+      "feeding": [
+        {
+          "size_label": "500g",
+          "weight_min_kg": 2,
+          "weight_max_kg": 3,
+          "amount_min": 25,
+          "amount_max": 30,
+          "unit": "g",
+          "note": "加水泡開後餵食"
+        },
+        {
+          "size_label": "500g",
+          "weight_min_kg": 3,
+          "weight_max_kg": 5,
+          "amount_min": 30,
+          "amount_max": 40,
+          "unit": "g",
+          "note": "加水泡開後餵食"
+        },
+        {
+          "size_label": "500g",
+          "weight_min_kg": 5,
+          "weight_max_kg": 8,
+          "amount_min": 40,
+          "amount_max": 55,
+          "unit": "g",
+          "note": "加水泡開後餵食"
+        }
+      ]
+    },
+    {
+      "slug": "fresh-meat-can",
+      "variants": [
+        {
+          "sku": "DCS-CAN-DUCK-80",
+          "flavor": "鴨肉",
+          "size_label": "80g",
+          "price": 48,
+          "net_weight_g": 80,
+          "dimensions_mm": null,
+          "shelf_life_days": 1095,
+          "storage": "陰涼乾燥處，避免日曬；開罐後冷藏",
+          "packaging": "鋁罐",
+          "shipping_class": "standard",
+          "stock": 200
+        },
+        {
+          "sku": "DCS-CAN-DUCK-165",
+          "flavor": "鴨肉",
+          "size_label": "165g",
+          "price": 85,
+          "net_weight_g": 165,
+          "dimensions_mm": null,
+          "shelf_life_days": 1095,
+          "storage": "陰涼乾燥處，避免日曬；開罐後冷藏",
+          "packaging": "鋁罐",
+          "shipping_class": "standard",
+          "stock": 120
+        },
+        {
+          "sku": "DCS-CAN-DUCK-80X24",
+          "flavor": "鴨肉",
+          "size_label": "80g 一箱 24 罐",
+          "price": 1100,
+          "net_weight_g": 1920,
+          "dimensions_mm": null,
+          "shelf_life_days": 1095,
+          "storage": "陰涼乾燥處，避免日曬；開罐後冷藏",
+          "packaging": "紙箱",
+          "shipping_class": "standard",
+          "stock": 15
+        },
+        {
+          "sku": "DCS-CAN-TURKEY-80",
+          "flavor": "火雞",
+          "size_label": "80g",
+          "price": 48,
+          "net_weight_g": 80,
+          "dimensions_mm": null,
+          "shelf_life_days": 1095,
+          "storage": "陰涼乾燥處，避免日曬；開罐後冷藏",
+          "packaging": "鋁罐",
+          "shipping_class": "standard",
+          "stock": 200
+        },
+        {
+          "sku": "DCS-CAN-TURKEY-165",
+          "flavor": "火雞",
+          "size_label": "165g",
+          "price": 85,
+          "net_weight_g": 165,
+          "dimensions_mm": null,
+          "shelf_life_days": 1095,
+          "storage": "陰涼乾燥處，避免日曬；開罐後冷藏",
+          "packaging": "鋁罐",
+          "shipping_class": "standard",
+          "stock": 120
+        },
+        {
+          "sku": "DCS-CAN-TURKEY-80X24",
+          "flavor": "火雞",
+          "size_label": "80g 一箱 24 罐",
+          "price": 1100,
+          "net_weight_g": 1920,
+          "dimensions_mm": null,
+          "shelf_life_days": 1095,
+          "storage": "陰涼乾燥處，避免日曬；開罐後冷藏",
+          "packaging": "紙箱",
+          "shipping_class": "standard",
+          "stock": 15
+        },
+        {
+          "sku": "DCS-CAN-TUNA-80",
+          "flavor": "鮪魚",
+          "size_label": "80g",
+          "price": 48,
+          "net_weight_g": 80,
+          "dimensions_mm": null,
+          "shelf_life_days": 1095,
+          "storage": "陰涼乾燥處，避免日曬；開罐後冷藏",
+          "packaging": "鋁罐",
+          "shipping_class": "standard",
+          "stock": 200
+        },
+        {
+          "sku": "DCS-CAN-TUNA-165",
+          "flavor": "鮪魚",
+          "size_label": "165g",
+          "price": 85,
+          "net_weight_g": 165,
+          "dimensions_mm": null,
+          "shelf_life_days": 1095,
+          "storage": "陰涼乾燥處，避免日曬；開罐後冷藏",
+          "packaging": "鋁罐",
+          "shipping_class": "standard",
+          "stock": 0
+        },
+        {
+          "sku": "DCS-CAN-TUNA-80X24",
+          "flavor": "鮪魚",
+          "size_label": "80g 一箱 24 罐",
+          "price": 1100,
+          "net_weight_g": 1920,
+          "dimensions_mm": null,
+          "shelf_life_days": 1095,
+          "storage": "陰涼乾燥處，避免日曬；開罐後冷藏",
+          "packaging": "紙箱",
+          "shipping_class": "standard",
+          "stock": 15
+        }
+      ],
+      "feeding": [
+        {
+          "size_label": "80g",
+          "weight_min_kg": 3,
+          "weight_max_kg": 5,
+          "amount_min": 1.5,
+          "amount_max": 2,
+          "unit": "罐",
+          "note": "幼貓、懷孕和哺乳中的貓約為成貓的兩到三倍"
+        },
+        {
+          "size_label": "80g",
+          "weight_min_kg": 5,
+          "weight_max_kg": 8,
+          "amount_min": 2,
+          "amount_max": 3,
+          "unit": "罐",
+          "note": "幼貓、懷孕和哺乳中的貓約為成貓的兩到三倍"
+        },
+        {
+          "size_label": "165g",
+          "weight_min_kg": 3,
+          "weight_max_kg": 5,
+          "amount_min": 0.75,
+          "amount_max": 1,
+          "unit": "罐",
+          "note": "幼貓、懷孕和哺乳中的貓約為成貓的兩到三倍"
+        },
+        {
+          "size_label": "165g",
+          "weight_min_kg": 5,
+          "weight_max_kg": 8,
+          "amount_min": 1,
+          "amount_max": 1.5,
+          "unit": "罐",
+          "note": "幼貓、懷孕和哺乳中的貓約為成貓的兩到三倍"
+        }
+      ]
+    },
+    {
+      "slug": "low-phosphorus-can",
+      "variants": [
+        {
+          "sku": "DCS-LPC-CHK-80",
+          "flavor": "雞肉",
+          "size_label": "80g",
+          "price": 55,
+          "net_weight_g": 80,
+          "dimensions_mm": null,
+          "shelf_life_days": 1095,
+          "storage": "陰涼乾燥處，避免日曬；開罐後冷藏",
+          "packaging": "鋁罐",
+          "shipping_class": "standard",
+          "stock": 80
+        },
+        {
+          "sku": "DCS-LPC-CHK-165",
+          "flavor": "雞肉",
+          "size_label": "165g",
+          "price": 95,
+          "net_weight_g": 165,
+          "dimensions_mm": null,
+          "shelf_life_days": 1095,
+          "storage": "陰涼乾燥處，避免日曬；開罐後冷藏",
+          "packaging": "鋁罐",
+          "shipping_class": "standard",
+          "stock": 60
+        }
+      ],
+      "feeding": [
+        {
+          "size_label": "80g",
+          "weight_min_kg": 3,
+          "weight_max_kg": 5,
+          "amount_min": 2,
+          "amount_max": 2.5,
+          "unit": "罐",
+          "note": "依獸醫建議調整"
+        }
+      ]
+    },
+    {
+      "slug": "cat-grass-kit",
+      "variants": [
+        {
+          "sku": "DCS-GRASS-3",
+          "flavor": null,
+          "size_label": "3 盒",
+          "price": 199,
+          "net_weight_g": null,
+          "dimensions_mm": null,
+          "shelf_life_days": null,
+          "storage": "收到後放在通風、有光的地方",
+          "packaging": "栽培盒",
+          "shipping_class": "standard",
+          "stock": 30
+        }
+      ],
+      "feeding": []
+    },
+    {
+      "slug": "probiotics",
+      "variants": [
+        {
+          "sku": "DCS-PRO-30",
+          "flavor": null,
+          "size_label": "30 包",
+          "price": 590,
+          "net_weight_g": 60,
+          "dimensions_mm": null,
+          "shelf_life_days": 730,
+          "storage": "陰涼乾燥處，避免日曬",
+          "packaging": "鋁箔包",
+          "shipping_class": "standard",
+          "stock": 100
+        }
+      ],
+      "feeding": [
+        {
+          "size_label": "30 包",
+          "weight_min_kg": 0,
+          "weight_max_kg": 10,
+          "amount_min": 1,
+          "amount_max": 1,
+          "unit": "包",
+          "note": "每天一包"
+        },
+        {
+          "size_label": "30 包",
+          "weight_min_kg": 10,
+          "weight_max_kg": 40,
+          "amount_min": 2,
+          "amount_max": 2,
+          "unit": "包",
+          "note": "每天分兩次"
+        }
+      ]
+    },
+    {
+      "slug": "joint-powder",
+      "variants": [
+        {
+          "sku": "DCS-JNT-60",
+          "flavor": null,
+          "size_label": "60g",
+          "price": 850,
+          "net_weight_g": 60,
+          "dimensions_mm": null,
+          "shelf_life_days": 730,
+          "storage": "陰涼乾燥處，避免日曬",
+          "packaging": "罐裝",
+          "shipping_class": "standard",
+          "stock": 40
+        },
+        {
+          "sku": "DCS-JNT-150",
+          "flavor": null,
+          "size_label": "150g",
+          "price": 1980,
+          "net_weight_g": 150,
+          "dimensions_mm": null,
+          "shelf_life_days": 730,
+          "storage": "陰涼乾燥處，避免日曬",
+          "packaging": "罐裝",
+          "shipping_class": "standard",
+          "stock": 0
+        }
+      ],
+      "feeding": [
+        {
+          "size_label": "60g",
+          "weight_min_kg": 0,
+          "weight_max_kg": 10,
+          "amount_min": 1,
+          "amount_max": 1,
+          "unit": "匙",
+          "note": "附量匙"
+        },
+        {
+          "size_label": "60g",
+          "weight_min_kg": 10,
+          "weight_max_kg": 40,
+          "amount_min": 2,
+          "amount_max": 3,
+          "unit": "匙",
+          "note": "附量匙"
+        }
+      ]
+    },
+    {
+      "slug": "calcium-chews",
+      "variants": [
+        {
+          "sku": "DCS-CAL-60",
+          "flavor": null,
+          "size_label": "60 錠",
+          "price": 450,
+          "net_weight_g": 90,
+          "dimensions_mm": null,
+          "shelf_life_days": 730,
+          "storage": "陰涼乾燥處，避免日曬",
+          "packaging": "罐裝",
+          "shipping_class": "standard",
+          "stock": 50
+        }
+      ],
+      "feeding": [
+        {
+          "size_label": "60 錠",
+          "weight_min_kg": 0,
+          "weight_max_kg": 10,
+          "amount_min": 1,
+          "amount_max": 1,
+          "unit": "錠",
+          "note": null
+        },
+        {
+          "size_label": "60 錠",
+          "weight_min_kg": 10,
+          "weight_max_kg": 40,
+          "amount_min": 2,
+          "amount_max": 2,
+          "unit": "錠",
+          "note": null
+        }
+      ]
+    },
+    {
+      "slug": "fish-oil",
+      "variants": [
+        {
+          "sku": "DCS-FISH-60",
+          "flavor": null,
+          "size_label": "60 顆",
+          "price": 680,
+          "net_weight_g": 60,
+          "dimensions_mm": null,
+          "shelf_life_days": 540,
+          "storage": "開封後冷藏",
+          "packaging": "罐裝",
+          "shipping_class": "standard",
+          "stock": 45
+        }
+      ],
+      "feeding": [
+        {
+          "size_label": "60 顆",
+          "weight_min_kg": 0,
+          "weight_max_kg": 10,
+          "amount_min": 1,
+          "amount_max": 1,
+          "unit": "顆",
+          "note": null
+        },
+        {
+          "size_label": "60 顆",
+          "weight_min_kg": 10,
+          "weight_max_kg": 40,
+          "amount_min": 2,
+          "amount_max": 2,
+          "unit": "顆",
+          "note": null
+        }
+      ]
+    },
+    {
+      "slug": "grain-free-kibble",
+      "variants": [
+        {
+          "sku": "DCS-KIB-1500",
+          "flavor": null,
+          "size_label": "1.5kg",
+          "price": 690,
+          "net_weight_g": 1500,
+          "dimensions_mm": null,
+          "shelf_life_days": 365,
+          "storage": "陰涼乾燥處，避免日曬；開封後夾緊袋口",
+          "packaging": "夾鏈袋",
+          "shipping_class": "standard",
+          "stock": 60
+        },
+        {
+          "sku": "DCS-KIB-6000",
+          "flavor": null,
+          "size_label": "6kg",
+          "price": 2400,
+          "net_weight_g": 6000,
+          "dimensions_mm": null,
+          "shelf_life_days": 365,
+          "storage": "陰涼乾燥處，避免日曬；開封後夾緊袋口",
+          "packaging": "夾鏈袋",
+          "shipping_class": "standard",
+          "stock": 12
+        }
+      ],
+      "feeding": [
+        {
+          "size_label": "1.5kg",
+          "weight_min_kg": 3,
+          "weight_max_kg": 5,
+          "amount_min": 50,
+          "amount_max": 70,
+          "unit": "g",
+          "note": "和罐頭一起吃時減量"
+        },
+        {
+          "size_label": "1.5kg",
+          "weight_min_kg": 5,
+          "weight_max_kg": 8,
+          "amount_min": 70,
+          "amount_max": 95,
+          "unit": "g",
+          "note": "和罐頭一起吃時減量"
+        }
+      ]
+    },
+    {
+      "slug": "adult-dog-can",
+      "variants": [
+        {
+          "sku": "DCS-DCAN-BEEF-165",
+          "flavor": "牛肉",
+          "size_label": "165g",
+          "price": 75,
+          "net_weight_g": 165,
+          "dimensions_mm": null,
+          "shelf_life_days": 1095,
+          "storage": "陰涼乾燥處，避免日曬；開罐後冷藏",
+          "packaging": "鋁罐",
+          "shipping_class": "standard",
+          "stock": 90
+        },
+        {
+          "sku": "DCS-DCAN-BEEF-165X12",
+          "flavor": "牛肉",
+          "size_label": "165g 一箱 12 罐",
+          "price": 850,
+          "net_weight_g": 1980,
+          "dimensions_mm": null,
+          "shelf_life_days": 1095,
+          "storage": "陰涼乾燥處，避免日曬；開罐後冷藏",
+          "packaging": "紙箱",
+          "shipping_class": "standard",
+          "stock": 10
+        }
+      ],
+      "feeding": [
+        {
+          "size_label": "165g",
+          "weight_min_kg": 5,
+          "weight_max_kg": 10,
+          "amount_min": 1.5,
+          "amount_max": 2.5,
+          "unit": "罐",
+          "note": null
+        },
+        {
+          "size_label": "165g",
+          "weight_min_kg": 10,
+          "weight_max_kg": 20,
+          "amount_min": 2.5,
+          "amount_max": 4,
+          "unit": "罐",
+          "note": null
+        }
+      ]
+    },
+    {
+      "slug": "tofu-litter",
+      "variants": [
+        {
+          "sku": "DCS-LIT-1",
+          "flavor": null,
+          "size_label": "單包",
+          "price": 399,
+          "net_weight_g": 2700,
+          "dimensions_mm": [
+            400,
+            250,
+            100
+          ],
+          "shelf_life_days": 730,
+          "storage": "乾燥處，避免受潮",
+          "packaging": "塑膠袋",
+          "shipping_class": "litter",
+          "stock": 80
+        },
+        {
+          "sku": "DCS-LIT-3",
+          "flavor": null,
+          "size_label": "三包一箱",
+          "price": 1100,
+          "net_weight_g": 8100,
+          "dimensions_mm": [
+            420,
+            300,
+            280
+          ],
+          "shelf_life_days": 730,
+          "storage": "乾燥處，避免受潮",
+          "packaging": "紙箱",
+          "shipping_class": "litter",
+          "stock": 25
+        }
+      ],
+      "feeding": []
+    },
+    {
+      "slug": "wooden-dog-house",
+      "variants": [
+        {
+          "sku": "DCS-DH-M",
+          "flavor": null,
+          "size_label": "M",
+          "price": 3200,
+          "net_weight_g": 12000,
+          "dimensions_mm": [
+            800,
+            600,
+            650
+          ],
+          "shelf_life_days": null,
+          "storage": "避免長時間日曬和淋雨",
+          "packaging": "紙箱",
+          "shipping_class": "bulky",
+          "stock": 6
+        },
+        {
+          "sku": "DCS-DH-L",
+          "flavor": null,
+          "size_label": "L",
+          "price": 4500,
+          "net_weight_g": 18000,
+          "dimensions_mm": [
+            1000,
+            750,
+            800
+          ],
+          "shelf_life_days": null,
+          "storage": "避免長時間日曬和淋雨",
+          "packaging": "紙箱",
+          "shipping_class": "bulky",
+          "stock": 0
+        }
+      ],
+      "feeding": []
+    },
+    {
+      "slug": "lick-mat",
+      "variants": [
+        {
+          "sku": "DCS-MAT-1",
+          "flavor": null,
+          "size_label": "單個",
+          "price": 350,
+          "net_weight_g": 120,
+          "dimensions_mm": [
+            200,
+            200,
+            10
+          ],
+          "shelf_life_days": null,
+          "storage": null,
+          "packaging": "紙盒",
+          "shipping_class": "standard",
+          "stock": 70
+        }
+      ],
+      "feeding": []
+    },
+    {
+      "slug": "cat-teaser-wand",
+      "variants": [
+        {
+          "sku": "DCS-WAND-1",
+          "flavor": null,
+          "size_label": "單支",
+          "price": 180,
+          "net_weight_g": 60,
+          "dimensions_mm": [
+            600,
+            40,
+            20
+          ],
+          "shelf_life_days": null,
+          "storage": null,
+          "packaging": "紙卡",
+          "shipping_class": "standard",
+          "stock": 50
+        },
+        {
+          "sku": "DCS-WAND-REFILL-3",
+          "flavor": null,
+          "size_label": "替換羽毛 3 入",
+          "price": 120,
+          "net_weight_g": 15,
+          "dimensions_mm": [
+            200,
+            60,
+            10
+          ],
+          "shelf_life_days": null,
+          "storage": null,
+          "packaging": "夾鏈袋",
+          "shipping_class": "standard",
+          "stock": 80
+        }
+      ],
+      "feeding": []
+    }
+  ]
+}
